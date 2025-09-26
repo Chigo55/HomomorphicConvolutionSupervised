@@ -14,7 +14,7 @@ from torch.optim.rmsprop import RMSprop
 from torch.optim.rprop import Rprop
 from torch.optim.sgd import SGD
 
-from model.blocks.lowlightenhancer import LowLightEnhancer, EnhancerOutputs
+from model.blocks.lowlightenhancer import EnhancerOutputs, LowLightEnhancer
 from model.loss import MeanAbsoluteError, MeanSquaredError, StructuralSimilarity
 from utils.metrics import ImageQualityMetrics, MetricDict
 

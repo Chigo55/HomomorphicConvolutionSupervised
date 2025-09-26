@@ -22,3 +22,16 @@ dev = [
 
 [[tool.uv.index]]
 url = "https://download.pytorch.org/whl/cu118"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I"]
+ignore = ["E501"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

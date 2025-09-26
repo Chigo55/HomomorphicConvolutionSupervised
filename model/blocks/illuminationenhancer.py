@@ -118,7 +118,9 @@ class Upsampling(nn.Module):
             stride=1,
             padding=1,
         )
-        self.up: nn.Upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+        self.up: nn.Upsample = nn.Upsample(
+            scale_factor=2, mode="bilinear", align_corners=True
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.trainable:

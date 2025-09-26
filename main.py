@@ -1,10 +1,9 @@
+import os
+import random
 from typing import Any, Dict, List
 
 from engine import LightningEngine
 from model.model import LowLightEnhancerLightning
-
-import os
-import random
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
