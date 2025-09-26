@@ -1,110 +1,140 @@
-# HomomorphicDiT: Low-Light Image Enhancement
+﻿# Homomorphic Convolution Supervised
 
-This repository implements a deep learning pipeline for low-light image enhancement using a homomorphic separation and transformer-based architecture. The project is organized for training, validation, benchmarking, and inference of the HomomorphicDiT model.
+Low-light image enhancement pipeline that decomposes illumination with homomorphic filtering, restores chroma and reflectance details, and re-composes enhanced RGB outputs. The implementation uses PyTorch Lightning for training, validation, benchmarking, and inference.
 
-## Project Structure
+## Repository Layout
 
-```
+`
 .
-├── main.py
-├── requirements.txt
-├── data_split.ipynb
-├── difusion.ipynb
-├── image.ipynb
-├── times.ttf
-├── data/
-│   ├── dataloader.py
-│   ├── utils.py
-│   ├── 1_train/
-│   ├── 2_valid/
-│   ├── 3_bench/
-│   ├── 4_infer/
-│   └── database/
-├── engine/
-│   ├── trainer.py
-│   ├── validater.py
-│   ├── inferencer.py
-│   └── benchmarker.py
-├── model/
-│   ├── model.py
-│   ├── block.py
-│   └── losses.py
-├── utils/
-│   ├── utils.py
-│   ├── metrics.py
-│   └── hook.py
-├── runs/
-│   └── HomomorphicUnet/
-└── zoo/
+|-- main.py
+|-- data/
+|   |-- __init__.py
+|   |-- dataloader.py
+|   |-- utils.py
+|-- engine/
+|   |-- __init__.py
+|   |-- engine.py
+|   |-- runner.py
+|-- model/
+|   |-- __init__.py
+|   |-- model.py
+|   |-- loss.py
+|   |-- blocks/
+|       |-- __init__.py
+|       |-- featurerestorer.py
+|       |-- homomorphic.py
+|       |-- illuminationenhancer.py
+|       |-- lowlightenhancer.py
+|-- utils/
+|   |-- __init__.py
+|   |-- metrics.py
+|   |-- utils.py
+|-- pyproject.toml
+|-- requirements.txt
+|-- uv.lock
+|-- README.md
+`
+
+## Environment Management (uv)
+
+This project uses [uv](https://github.com/astral-sh/uv) for Python environment and dependency management.
+
+```bash
+# create and sync the environment
+uv sync
+
+# run commands inside the environment
+uv run python main.py
+
+# add or update dependencies
+uv add <package>
+uv lock
 ```
 
-## Main Components
+Requirements remain in
+equirements.txt for compatibility with other workflows, but uv sync is the canonical way to reproduce the environment described in pyproject.toml and uv.lock.
 
-- **Model**: The core model is implemented in [`model/model.py`](model/model.py), with transformer blocks in [`model/block.py`](model/block.py) and loss functions in [`model/losses.py`](model/losses.py).
-- **Data**: Data loading and augmentation utilities are in [`data/dataloader.py`](data/dataloader.py) and [`data/utils.py`](data/utils.py).
-- **Engine**: Training, validation, inference, and benchmarking logic are in [`engine/trainer.py`](engine/trainer.py), [`engine/validater.py`](engine/validater.py), [`engine/inferencer.py`](engine/inferencer.py), and [`engine/benchmarker.py`](engine/benchmarker.py).
-- **Utilities**: General utilities and metrics are in [`utils/utils.py`](utils/utils.py) and [`utils/metrics.py`](utils/metrics.py).
+## Architecture Overview
 
-## Data Preparation
+| Stage | File | Description |
+| --- | --- | --- |
+| Data loading | data/utils.py, data/dataloader.py | LowLightDataset pairs low and high images; LowLightDataModule builds loaders for train, valid, bench, infer splits. |
+| Homomorphic separation | model/blocks/homomorphic.py | Converts RGB and YCrCb and splits illumination and reflectance via a learned homomorphic filter. |
+| Illumination enhancement | model/blocks/illuminationenhancer.py | U-Net style convolutional stack that brightens the illumination map. |
+| Feature restoration | model/blocks/featurerestorer.py | Restores chroma and reflectance through residual double-convolution blocks. |
+| Recomposition | model/blocks/lowlightenhancer.py | Combines restored components, clamps outputs, and returns structured tensors. |
+| Lightning wrapper | model/model.py | Aggregates the pipeline, computes MAE, MSE, SSIM losses, logs metrics, and configures optimisers. |
+| Engine and runners | engine/engine.py, engine/runner.py | LightningEngine seeds, logs, and holds a single model instance; stage runners reuse that instance so validation, benchmarking, and inference use trained weights. |
+| Metrics and utilities | utils/metrics.py, utils/utils.py | Quality metrics (PSNR, SSIM, LPIPS, NIQE, BRISQUE) and helpers for saving images, printing metrics, and summarising models. |
 
-- Place your training, validation, benchmarking, and inference images in the respective folders under `data/`.
-- Use [`data_split.ipynb`](data_split.ipynb) to split and organize your dataset if needed.
+## Dataset Expectation
 
-## Training
+Each split directory can contain multiple datasets. Inside each dataset folder you must provide matching low/ and high/ subfolders. Example layout:
 
-To train the model, run:
+`
+data/
+|-- 1_train/
+|   |-- LOLv1/
+|       |-- low/
+|       |-- high/
+|-- 2_valid/
+|   |-- LOLv1/
+|       |-- low/
+|       |-- high/
+|-- 3_bench/
+|   |-- LOLv1/
+|       |-- low/
+|       |-- high/
+|-- 4_infer/
+    |-- LOLv1/
+        |-- low/
+        |-- high/
+`
 
-```sh
-python main.py
-```
+File names inside corresponding low/ and high/ directories must align (for example 0001.png should exist in both).
 
-Or use the training logic in [`difusion.ipynb`](difusion.ipynb) for interactive experimentation.
+## Running the Pipeline
 
-Hyperparameters are defined in the `get_hparams()` function (see [`difusion.ipynb`](difusion.ipynb)), including model size, loss weights, learning rate, and data paths.
+`python
+from engine import LightningEngine
+from model.model import LowLightEnhancerLightning
+from main import get_hparams
 
-## Validation & Benchmarking
+engine = LightningEngine(
+    model_class=LowLightEnhancerLightning,
+    hparams=get_hparams(),
+)
+engine.train()   # fits the model
+engine.valid()   # evaluates on validation data
+engine.bench()   # reports PSNR, SSIM, LPIPS, NIQE, BRISQUE
+engine.infer()   # saves enhanced images for inference data
+`
 
-- Validation and benchmarking can be performed using the scripts in the `engine/` directory or interactively in [`difusion.ipynb`](difusion.ipynb).
-- Image quality metrics such as PSNR, SSIM, LPIPS, NIQE, and BRISQUE are computed using [`utils/metrics.py`](utils/metrics.py).
+### Resuming or Inference from a Checkpoint
 
-## Inference
+`python
+engine = LightningEngine(
+    model_class=LowLightEnhancerLightning,
+    hparams=get_hparams(),
+    checkpoint_path="runs/example/best-epoch.ckpt",
+)
+`
 
-To run inference on new images, use the inference logic in [`engine/inferencer.py`](engine/inferencer.py) or the corresponding cells in [`difusion.ipynb`](difusion.ipynb).
+## Hyperparameters
 
-## Visualization
+main.py exposes get_hparams() – adjust image size, batch size, optimiser, patience, and module-specific options (hidden_channels,
+um_resolution, dropout_ratio,
+aw_cutoff, offset, 	rainable). The example script loops over several optimisers; adapt or remove the loop as required.
 
-[`image.ipynb`](image.ipynb) provides visualization utilities for inspecting input, intermediate, and enhanced images.
+## Metrics and Logging
 
-## Requirements
+- Metrics are computed through utils/metrics.py and logged by Lightning.
+- TensorBoard logs and checkpoints are stored under log_dir/experiment_name (defaults to
+uns/<experiment>).
+- The best checkpoint is tracked using the validation total loss (valid/4_total).
 
-Install dependencies with:
+## Notes
 
-```sh
-pip install -r requirements.txt
-```
-
-Key dependencies include:
-- PyTorch
-- PyTorch Lightning
-- torchvision
-- opencv-contrib-python
-- numpy
-- matplotlib
-
-## Utilities
-
-- Model parameter counting and summaries: [`utils/utils.py`](utils/utils.py)
-- Image saving and metric printing: [`utils/utils.py`](utils/utils.py)
-
-## Checkpoints & Logs
-
-- Training logs and checkpoints are saved under `runs/` and `runs2/` directories.
-- Best checkpoints are saved based on validation metrics.
-
-## Citation
-
-If you use this codebase, please cite the original paper (add citation here if available).
-
----
-
-**Note:** This repository is designed for research and educational purposes. For production use, further testing and optimization are
+- Designed for research and experimentation; additional robustness checks are recommended before production deployment.
+- Utility helpers (utils/utils.py) cover image saving, metric printing, directory creation, parameter counting, and model summaries.
+- Loss wrappers in model/loss.py can be extended for custom objectives.
