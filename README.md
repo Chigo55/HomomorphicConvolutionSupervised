@@ -5,34 +5,34 @@ Low-light image enhancement pipeline that decomposes illumination with homomorph
 ## Repository Layout
 
 `
-.
-|-- main.py
-|-- data/
-|   |-- __init__.py
-|   |-- dataloader.py
-|   |-- utils.py
-|-- engine/
-|   |-- __init__.py
-|   |-- engine.py
-|   |-- runner.py
-|-- model/
-|   |-- __init__.py
-|   |-- model.py
-|   |-- loss.py
-|   |-- blocks/
-|       |-- __init__.py
-|       |-- featurerestorer.py
-|       |-- homomorphic.py
-|       |-- illuminationenhancer.py
-|       |-- lowlightenhancer.py
-|-- utils/
-|   |-- __init__.py
-|   |-- metrics.py
-|   |-- utils.py
-|-- pyproject.toml
-|-- requirements.txt
-|-- uv.lock
-|-- README.md
+.        
+|-- main.py        
+|-- data/        
+|   |-- __init__.py        
+|   |-- dataloader.py        
+|   |-- utils.py        
+|-- engine/        
+|   |-- __init__.py        
+|   |-- engine.py        
+|   |-- runner.py        
+|-- model/        
+|   |-- __init__.py        
+|   |-- model.py        
+|   |-- loss.py        
+|   |-- blocks/        
+|       |-- __init__.py        
+|       |-- featurerestorer.py        
+|       |-- homomorphic.py        
+|       |-- illuminationenhancer.py        
+|       |-- lowlightenhancer.py        
+|-- utils/        
+|   |-- __init__.py        
+|   |-- metrics.py        
+|   |-- utils.py        
+|-- pyproject.toml        
+|-- requirements.txt        
+|-- uv.lock        
+|-- README.md        
 `
 
 ## Environment Management (uv)
@@ -72,23 +72,23 @@ equirements.txt for compatibility with other workflows, but uv sync is the canon
 Each split directory can contain multiple datasets. Inside each dataset folder you must provide matching low/ and high/ subfolders. Example layout:
 
 `
-data/
-|-- 1_train/
-|   |-- LOLv1/
-|       |-- low/
-|       |-- high/
-|-- 2_valid/
-|   |-- LOLv1/
-|       |-- low/
-|       |-- high/
-|-- 3_bench/
-|   |-- LOLv1/
-|       |-- low/
-|       |-- high/
-|-- 4_infer/
-    |-- LOLv1/
-        |-- low/
-        |-- high/
+data/        
+|-- 1_train/        
+|   |-- LOLv1/        
+|       |-- low/        
+|       |-- high/        
+|-- 2_valid/        
+|   |-- LOLv1/        
+|       |-- low/        
+|       |-- high/        
+|-- 3_bench/        
+|   |-- LOLv1/        
+|       |-- low/        
+|       |-- high/        
+|-- 4_infer/        
+    |-- LOLv1/        
+        |-- low/        
+        |-- high/        
 `
 
 File names inside corresponding low/ and high/ directories must align (for example 0001.png should exist in both).
