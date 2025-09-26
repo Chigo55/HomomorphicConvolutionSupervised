@@ -6,7 +6,6 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 from data.utils import LowLightDataset, LowLightSample
 
-StageLiteral: TypeAlias = Literal["fit", "validate", "test", "predict"]
 LowLightDatasetList: TypeAlias = list[LowLightDataset]
 LowLightDataLoader: TypeAlias = DataLoader[LowLightSample]
 LowLightDataLoaderList: TypeAlias = list[LowLightDataLoader]
@@ -38,7 +37,7 @@ class LowLightDataModule(L.LightningDataModule):
         self.bench_datasets: LowLightDatasetList = []
         self.infer_datasets: LowLightDatasetList = []
 
-    def setup(self, stage: Optional[StageLiteral] = None) -> None:
+    def setup(self, stage: str) -> None:
         if stage is None:
             self.train_datasets = self._set_dataset(path=self.train_dir)
             self.valid_datasets = self._set_dataset(path=self.valid_dir)
@@ -71,8 +70,7 @@ class LowLightDataModule(L.LightningDataModule):
         datasets: LowLightDatasetList,
         concat: Literal[True],
         shuffle: bool = False,
-    ) -> LowLightDataLoader:
-        ...
+    ) -> LowLightDataLoader: ...
 
     @overload
     def _set_dataloader(
@@ -80,8 +78,7 @@ class LowLightDataModule(L.LightningDataModule):
         datasets: LowLightDatasetList,
         concat: Literal[False] = False,
         shuffle: bool = False,
-    ) -> LowLightDataLoaderList:
-        ...
+    ) -> LowLightDataLoaderList: ...
 
     def _set_dataloader(
         self,
