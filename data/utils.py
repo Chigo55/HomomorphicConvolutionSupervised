@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, cast
+from typing import Tuple, Union, cast
 
 import torch
 from PIL import Image
@@ -28,7 +28,7 @@ class LowLightDataset(Dataset):
     def __len__(self) -> int:
         return len(self.low_datas)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         low_data = self.low_datas[index]
         high_data = self.high_path / low_data.name
 

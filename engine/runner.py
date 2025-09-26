@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional, Type
 
 from lightning import LightningModule, Trainer
 
@@ -9,29 +10,37 @@ from utils.utils import save_images
 class _BaseRunner(ABC):
     def __init__(
         self,
-        model: LightningModule,
+        model: Type[LightningModule],
         trainer: Trainer,
         hparams: dict,
+        checkpoint_path: Optional[str] = None,
+        default_checkpoint_name: Optional[str] = None,
     ) -> None:
         self.trainer = trainer
         self.hparams = hparams
-        self.log_dir = self.hparams.get("log_dir", "runs/")
-        self.experiment_name = self.hparams.get("experiment_name", "test/")
-        self.inference = self.hparams.get("inference", "inference/")
-        self.save_dir = self.log_dir +  self.experiment_name + self.inference
+        self.save_dir = hparams["log_dir"] + hparams["experiment_name"]
 
-        self.model = model
+        if checkpoint_path:
+            self.model = model.load_from_checkpoint(
+                checkpoint_path=checkpoint_path,
+                map_location="cpu",
+            )
+            self.checkpoint_path = checkpoint_path
+        else:
+            self.model = model(hparams=hparams)
+            self.checkpoint_path = default_checkpoint_name
+
         self.datamodule = self._build_datamodule()
 
     def _build_datamodule(self) -> LowLightDataModule:
         datamodule = LowLightDataModule(
-            train_dir=self.hparams.get("train_data_path", "data/1_train"),
-            valid_dir=self.hparams.get("valid_data_path", "data/2_valid"),
-            bench_dir=self.hparams.get("bench_data_path", "data/3_bench"),
-            infer_dir=self.hparams.get("infer_data_path", "data/4_infer"),
-            image_size=self.hparams.get("image_size", 256),
-            batch_size=self.hparams.get("batch_size", 16),
-            num_workers=self.hparams.get("num_workers", 10),
+            train_dir=self.hparams["train_data_path"],
+            valid_dir=self.hparams["valid_data_path"],
+            bench_dir=self.hparams["bench_data_path"],
+            infer_dir=self.hparams["infer_data_path"],
+            image_size=self.hparams["image_size"],
+            batch_size=self.hparams["batch_size"],
+            num_workers=self.hparams["num_workers"],
         )
 
         return datamodule
@@ -46,7 +55,9 @@ class LightningTrainer(_BaseRunner):
         print("[INFO] Start Training...")
         self.trainer.fit(
             model=self.model,
-            datamodule=self.datamodule,        )
+            datamodule=self.datamodule,
+            ckpt_path=self.checkpoint_path,
+        )
         print("[INFO] Training Completed.")
 
 
@@ -56,6 +67,7 @@ class LightningValidater(_BaseRunner):
         self.trainer.validate(
             model=self.model,
             datamodule=self.datamodule,
+            ckpt_path=self.checkpoint_path,
         )
         print("[INFO] Validation Completed.")
 
@@ -66,6 +78,7 @@ class LightningBenchmarker(_BaseRunner):
         self.trainer.test(
             model=self.model,
             datamodule=self.datamodule,
+            ckpt_path=self.checkpoint_path,
         )
         print("[INFO] Benchmark Completed.")
 
@@ -76,9 +89,10 @@ class LightningInferencer(_BaseRunner):
         results = self.trainer.predict(
             model=self.model,
             datamodule=self.datamodule,
+            ckpt_path=self.checkpoint_path,
         )
         save_images(
             results=results,
-            save_dir=self.save_dir
+            save_dir=self.save_dir + self.hparams["inference"],
         )
         print("[INFO] Inference Completed.")

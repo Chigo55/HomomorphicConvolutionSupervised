@@ -4,11 +4,10 @@ import pyiqa
 
 
 class ImageQualityMetrics(nn.Module):
-    def __init__(self, device: str = "cuda") -> None:
+    def __init__(self, device="cuda"):
         super().__init__()
         self.device_type = device
 
-        # pyiqa 기반의 메트릭 생성
         self.psnr = pyiqa.create_metric(
             metric_name='psnr',
             device=device

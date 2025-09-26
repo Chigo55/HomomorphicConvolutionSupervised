@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional, Union, overload
+from typing import List, Literal, Optional, Union, overload
 
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
@@ -15,8 +15,8 @@ class LowLightDataModule(L.LightningDataModule):
         bench_dir: Union[str, Path],
         infer_dir: Union[str, Path],
         image_size: int,
-        batch_size: int,
-        num_workers: int,
+        batch_size: int = 32,
+        num_workers: int = 4,
     ) -> None:
         super().__init__()
         self.train_dir = Path(train_dir)
@@ -46,7 +46,7 @@ class LowLightDataModule(L.LightningDataModule):
         else:
             raise ValueError(f"Invalid stage: {stage}")
 
-    def _set_dataset(self, path: Path) -> list[LowLightDataset]:
+    def _set_dataset(self, path: Path) -> List[LowLightDataset]:
         datasets = []
         for folder in path.iterdir():
             if folder.is_dir():
@@ -58,7 +58,7 @@ class LowLightDataModule(L.LightningDataModule):
     @overload
     def _set_dataloader(
         self,
-        datasets: list[LowLightDataset],
+        datasets: List[LowLightDataset],
         concat: Literal[True],
         shuffle: bool = False,
     ) -> DataLoader: ...
@@ -66,17 +66,17 @@ class LowLightDataModule(L.LightningDataModule):
     @overload
     def _set_dataloader(
         self,
-        datasets: list[LowLightDataset],
+        datasets: List[LowLightDataset],
         concat: Literal[False] = False,
         shuffle: bool = False,
-    ) -> list[DataLoader]: ...
+    ) -> List[DataLoader]: ...
 
     def _set_dataloader(
         self,
-        datasets: list[LowLightDataset],
+        datasets: List[LowLightDataset],
         concat: bool = False,
         shuffle: bool = False,
-    ) -> Union[DataLoader, list[DataLoader]]:
+    ) -> Union[DataLoader, List[DataLoader]]:
         if concat:
             dataloader = DataLoader(
                 dataset=ConcatDataset(datasets=datasets),
@@ -109,8 +109,8 @@ class LowLightDataModule(L.LightningDataModule):
     def val_dataloader(self) -> DataLoader:
         return self._set_dataloader(datasets=self.valid_datasets, concat=True)
 
-    def test_dataloader(self) -> list[DataLoader]:
+    def test_dataloader(self) -> List[DataLoader]:
         return self._set_dataloader(datasets=self.bench_datasets)
 
-    def predict_dataloader(self) -> list[DataLoader]:
+    def predict_dataloader(self) -> List[DataLoader]:
         return self._set_dataloader(datasets=self.infer_datasets)
