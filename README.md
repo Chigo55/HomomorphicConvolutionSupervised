@@ -36,9 +36,9 @@ Low-light image enhancement pipeline that decomposes illumination with homomorph
 └── README.md
 ```
 
-## Environment Management (uv)
+## Environment Management (UV)
 
-This project uses [uv](https://github.com/astral-sh/uv) for Python environment and dependency management.
+This project uses [UV](https://github.com/astral-sh/uv) for Python environment and dependency management.
 
 ```bash
 # create and sync the environment
