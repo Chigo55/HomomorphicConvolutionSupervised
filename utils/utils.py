@@ -1,40 +1,51 @@
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence, TypeAlias
+
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-
-from pathlib import Path
-from torchvision.utils import save_image
 import torchvision.transforms.functional as F
 from torchinfo import summary
+from torchvision.utils import save_image
+
+PathLike: TypeAlias = str | Path
+TensorBatch: TypeAlias = Iterable[torch.Tensor]
+TensorBatches: TypeAlias = Iterable[TensorBatch]
+MetricMapping: TypeAlias = Mapping[str, float]
 
 
-def show_batch(images: torch.Tensor, ncols: int = 8):
-    nimgs = images.shape[0]
-    nrows = (nimgs + ncols - 1) // ncols
+def show_batch(images: torch.Tensor, ncols: int = 8) -> None:
+    nimgs: int = images.shape[0]
+    nrows: int = (nimgs + ncols - 1) // ncols
     plt.figure(figsize=(ncols * 3, nrows * 3))
     for i in range(nimgs):
         plt.subplot(nrows, ncols, i + 1)
         plt.imshow(X=F.to_pil_image(pic=images[i]))
-        plt.axis('off')
+        plt.axis("off")
         plt.title(label=f"Image {i}")
     plt.tight_layout()
     plt.show()
 
 
-def make_dirs(path: str | Path):
-    path = Path(path)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def make_dirs(path: PathLike) -> Path:
+    path_obj: Path = Path(path)
+    path_obj.mkdir(parents=True, exist_ok=True)
+    return path_obj
 
 
-def print_metrics(metrics: dict, prefix: str = ""):
-    for k, v in metrics.items():
-        print(f"{prefix}{k}: {v:.4f}")
+def print_metrics(metrics: MetricMapping, prefix: str = "") -> None:
+    for key, value in metrics.items():
+        print(f"{prefix}{key}: {value:.4f}")
 
 
-def save_images(results, save_dir, prefix="infer", ext="png"):
+def save_images(
+    results: TensorBatches,
+    save_dir: PathLike,
+    prefix: str = "infer",
+    ext: str = "png",
+) -> None:
     for i, datasets in enumerate(iterable=results):
-        save_path = make_dirs(path=f"{save_dir}/batch{i+1}")
+        save_path: Path = make_dirs(path=f"{save_dir}/batch{i + 1}")
         for ii, batch in enumerate(iterable=datasets):
             save_image(
                 tensor=batch,
@@ -42,25 +53,30 @@ def save_images(results, save_dir, prefix="infer", ext="png"):
                 nrow=8,
                 padding=2,
                 normalize=True,
-                value_range=(0, 1)
+                value_range=(0, 1),
             )
 
 
-def count_parameters(model):
+def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def summarize_model(model, input_size=None, input_data=None, **kwargs):
+
+def summarize_model(
+    model: nn.Module,
+    input_size: Sequence[int] | Sequence[Sequence[int]] | None = None,
+    input_data: Any = None,
+    **kwargs: Any,
+) -> Any:
     if input_data is not None:
         return summary(model=model, input_data=input_data, **kwargs)
-    elif input_size is not None:
+    if input_size is not None:
         return summary(model=model, input_size=input_size, **kwargs)
-    else:
-        raise ValueError("Either input_data or input_size must be provided.")
+    raise ValueError("Either input_data or input_size must be provided.")
 
 
-def weights_init(m):
+def weights_init(m: nn.Module) -> None:
     if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
-        nn.init.xavier_normal_(tensor=m.weight)  # 또는 xavier_uniform_
+        nn.init.xavier_normal_(tensor=m.weight)
         if m.bias is not None:
             nn.init.constant_(tensor=m.bias, val=0.0)
 

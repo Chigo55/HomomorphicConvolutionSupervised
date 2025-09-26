@@ -1,29 +1,34 @@
-from typing import Any
+from typing import Any, TypeAlias
 
 import lightning as L
 import torch
-from torch.optim.optimizer import Optimizer
 from torch.optim.adadelta import Adadelta
 from torch.optim.adagrad import Adagrad
 from torch.optim.adam import Adam
 from torch.optim.adamax import Adamax
 from torch.optim.adamw import AdamW
 from torch.optim.asgd import ASGD
+from torch.optim.lbfgs import LBFGS
+from torch.optim.optimizer import Optimizer
 from torch.optim.rmsprop import RMSprop
 from torch.optim.rprop import Rprop
 from torch.optim.sgd import SGD
 
-from model.blocks import LowLightEnhancer
+from model.blocks.lowlightenhancer import LowLightEnhancer, EnhancerOutputs
 from model.loss import MeanAbsoluteError, MeanSquaredError, StructuralSimilarity
-from utils.metrics import ImageQualityMetrics
+from utils.metrics import ImageQualityMetrics, MetricDict
+
+LossDict: TypeAlias = dict[str, torch.Tensor]
+ResultDict: TypeAlias = EnhancerOutputs
+Batch: TypeAlias = tuple[torch.Tensor, torch.Tensor]
 
 
 class LowLightEnhancerLightning(L.LightningModule):
-    def __init__(self, hparams: dict) -> None:
+    def __init__(self, hparams: dict[str, Any]) -> None:
         super().__init__()
         self.save_hyperparameters(hparams)
 
-        self.model = LowLightEnhancer(
+        self.model: LowLightEnhancer = LowLightEnhancer(
             hidden_channels=self.hparams.get("hidden_channels", 64),
             num_resolution=self.hparams.get("num_resolution", 4),
             dropout_ratio=self.hparams.get("dropout_ratio", 0.2),
@@ -32,46 +37,38 @@ class LowLightEnhancerLightning(L.LightningModule):
             trainable=self.hparams.get("trainable", False),
         )
 
-        self.mae_loss = MeanAbsoluteError().eval()
-        self.mse_loss = MeanSquaredError().eval()
-        self.ssim_loss = StructuralSimilarity().eval()
+        self.mae_loss: MeanAbsoluteError = MeanAbsoluteError().eval()
+        self.mse_loss: MeanSquaredError = MeanSquaredError().eval()
+        self.ssim_loss: StructuralSimilarity = StructuralSimilarity().eval()
 
-        self.metric = ImageQualityMetrics().eval()
+        self.metric: ImageQualityMetrics = ImageQualityMetrics().eval()
 
-    def forward(
-        self, low: torch.Tensor
-    ) -> dict[str, dict[str, torch.Tensor]]:
+    def forward(self, low: torch.Tensor) -> ResultDict:
         return self.model(low)
 
-    def _calculate_loss(
-        self, results: dict[str, dict[str, torch.Tensor]], target: torch.Tensor
-    ) ->  dict[str, torch.Tensor]:
-        pred = results["enhanced"]["rgb"]
+    def _calculate_loss(self, results: ResultDict, target: torch.Tensor) -> LossDict:
+        pred: torch.Tensor = results["enhanced"]["rgb"]
 
-        loss_mae = self.mae_loss(pred, target)
-        loss_mse = self.mse_loss(pred, target)
-        loss_ssim = self.ssim_loss(pred, target)
-        loss_total = loss_mae + loss_mse + loss_ssim
+        loss_mae: torch.Tensor = self.mae_loss(pred, target)
+        loss_mse: torch.Tensor = self.mse_loss(pred, target)
+        loss_ssim: torch.Tensor = self.ssim_loss(pred, target)
+        loss_total: torch.Tensor = loss_mae + loss_mse + loss_ssim
 
-        losses = {
+        losses: LossDict = {
             "mae": loss_mae,
             "mse": loss_mse,
             "ssim": loss_ssim,
-            "total": loss_total
+            "total": loss_total,
         }
         return losses
 
-    def _shared_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor]
-    ) -> tuple[dict[str, torch.Tensor], dict[str, dict[str, torch.Tensor]]]:
+    def _shared_step(self, batch: Batch) -> tuple[LossDict, ResultDict]:
         low_img, high_img = batch
-        results = self.forward(low=low_img)
-        losses = self._calculate_loss(results=results, target=high_img)
+        results: ResultDict = self.forward(low=low_img)
+        losses: LossDict = self._calculate_loss(results=results, target=high_img)
         return losses, results
 
-    def _log_media(
-        self, stage: str, results: dict, batch_idx: int
-    ) -> None:
+    def _log_media(self, stage: str, results: ResultDict, batch_idx: int) -> None:
         if batch_idx % 50 != 0:
             return
 
@@ -80,23 +77,21 @@ class LowLightEnhancerLightning(L.LightningModule):
 
         for i, (key, val) in enumerate(iterable=low.items()):
             self.logger.experiment.add_images(
-                f"{stage}/low/{i+1}_{key}", val, self.global_step
+                f"{stage}/low/{i + 1}_{key}", val, self.global_step
             )
         for i, (key, val) in enumerate(iterable=enhanced.items()):
             self.logger.experiment.add_images(
-                f"{stage}/enhanced/{i+1}_{key}", val, self.global_step
+                f"{stage}/enhanced/{i + 1}_{key}", val, self.global_step
             )
 
-    def _log_losses(self, stage: str, losses: dict) -> None:
-        log_dict = {}
+    def _log_losses(self, stage: str, losses: LossDict) -> None:
+        log_dict: dict[str, torch.Tensor] = {}
         for i, (key, val) in enumerate(iterable=losses.items()):
-            log_dict[f"{stage}/{i+1}_{key}"] = val
+            log_dict[f"{stage}/{i + 1}_{key}"] = val
 
         self.log_dict(dictionary=log_dict, prog_bar=True)
 
-    def training_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
         losses, results = self._shared_step(batch=batch)
 
         self._log_media(stage="train", results=results, batch_idx=batch_idx)
@@ -104,9 +99,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
         return losses["total"]
 
-    def validation_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def validation_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
         losses, results = self._shared_step(batch=batch)
 
         self._log_media(stage="valid", results=results, batch_idx=batch_idx)
@@ -116,14 +109,16 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def test_step(
         self,
-        batch: tuple[torch.Tensor, torch.Tensor],
+        batch: Batch,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
         low_img, high_img = batch
 
-        results = self.forward(low=low_img)
-        metrics = self.metric.full(preds=results["enhanced"]["rgb"], targets=high_img)
+        results: ResultDict = self.forward(low=low_img)
+        metrics: MetricDict = self.metric.full(
+            preds=results["enhanced"]["rgb"], targets=high_img
+        )
 
         self.log_dict(
             dictionary={
@@ -141,11 +136,11 @@ class LowLightEnhancerLightning(L.LightningModule):
     ) -> torch.Tensor:
         low_img, _ = batch
 
-        results = self.forward(low=low_img)
+        results: ResultDict = self.forward(low=low_img)
         return results["enhanced"]["rgb"]
 
     def configure_optimizers(self) -> Optimizer:
-        optim_name = self.hparams["optim"].lower()
+        optim_name: str = self.hparams["optim"].lower()
 
         if optim_name == "sgd":
             return SGD(
@@ -156,7 +151,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 nesterov=self.hparams.get("nesterov", True),
             )
 
-        elif optim_name == "asgd":
+        if optim_name == "asgd":
             return ASGD(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-2),
@@ -166,7 +161,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 1e-4),
             )
 
-        elif optim_name == "rmsprop":
+        if optim_name == "rmsprop":
             return RMSprop(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-3),
@@ -176,7 +171,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 0),
             )
 
-        elif optim_name == "rprop":
+        if optim_name == "rprop":
             return Rprop(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-2),
@@ -184,7 +179,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 step_sizes=self.hparams.get("step_sizes", (1e-6, 50)),
             )
 
-        elif optim_name == "adam":
+        if optim_name == "adam":
             return Adam(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-3),
@@ -193,7 +188,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 0),
             )
 
-        elif optim_name == "adamw":
+        if optim_name == "adamw":
             return AdamW(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-3),
@@ -202,7 +197,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 1e-2),
             )
 
-        elif optim_name == "adamax":
+        if optim_name == "adamax":
             return Adamax(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 2e-3),
@@ -211,7 +206,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 0),
             )
 
-        elif optim_name == "adagrad":
+        if optim_name == "adagrad":
             return Adagrad(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1e-2),
@@ -220,7 +215,7 @@ class LowLightEnhancerLightning(L.LightningModule):
                 eps=self.hparams.get("eps", 1e-10),
             )
 
-        elif optim_name == "adadelta":
+        if optim_name == "adadelta":
             return Adadelta(
                 params=self.parameters(),
                 lr=self.hparams.get("lr", 1.0),
@@ -229,5 +224,16 @@ class LowLightEnhancerLightning(L.LightningModule):
                 weight_decay=self.hparams.get("weight_decay", 0),
             )
 
-        else:
-            raise ValueError(f"Unsupported optimizer: {optim_name}")
+        if optim_name == "lbfgs":
+            return LBFGS(
+                params=self.parameters(),
+                lr=self.hparams.get("lr", 1.0),
+                max_iter=self.hparams.get("max_iter", 20),
+                max_eval=self.hparams.get("max_eval"),
+                tolerance_grad=self.hparams.get("tolerance_grad", 1e-7),
+                tolerance_change=self.hparams.get("tolerance_change", 1e-9),
+                history_size=self.hparams.get("history_size", 100),
+                line_search_fn=self.hparams.get("line_search_fn"),
+            )
+
+        raise ValueError(f"Unsupported optimizer: {optim_name}")

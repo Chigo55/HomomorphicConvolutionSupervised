@@ -1,35 +1,39 @@
+from typing import Dict, TypeAlias
+
+import pyiqa
 import torch
 import torch.nn as nn
-import pyiqa
+
+MetricDict: TypeAlias = Dict[str, float]
 
 
 class ImageQualityMetrics(nn.Module):
-    def __init__(self, device="cuda"):
+    def __init__(self, device: str = "cuda") -> None:
         super().__init__()
-        self.device_type = device
+        self.device_type: str = device
 
-        self.psnr = pyiqa.create_metric(
-            metric_name='psnr',
-            device=device
+        self.psnr: nn.Module = pyiqa.create_metric(
+            metric_name="psnr",
+            device=device,
         )
-        self.ssim = pyiqa.create_metric(
-            metric_name='ssim',
-            device=device
+        self.ssim: nn.Module = pyiqa.create_metric(
+            metric_name="ssim",
+            device=device,
         )
-        self.lpips = pyiqa.create_metric(
-            metric_name='lpips',
-            device=device
+        self.lpips: nn.Module = pyiqa.create_metric(
+            metric_name="lpips",
+            device=device,
         )
-        self.brisque = pyiqa.create_metric(
-            metric_name='brisque',
-            device=device
+        self.brisque: nn.Module = pyiqa.create_metric(
+            metric_name="brisque",
+            device=device,
         )
-        self.niqe = pyiqa.create_metric(
-            metric_name='niqe',
-            device=device
+        self.niqe: nn.Module = pyiqa.create_metric(
+            metric_name="niqe",
+            device=device,
         )
 
-    def forward(self, preds: torch.Tensor, targets: torch.Tensor) -> dict:
+    def forward(self, preds: torch.Tensor, targets: torch.Tensor) -> MetricDict:
         preds = preds.to(device=self.device_type)
         targets = targets.to(device=self.device_type)
 
@@ -39,7 +43,7 @@ class ImageQualityMetrics(nn.Module):
             "LPIPS": self.lpips(preds, targets).mean().item(),
         }
 
-    def no_ref(self, preds: torch.Tensor) -> dict:
+    def no_ref(self, preds: torch.Tensor) -> MetricDict:
         preds = preds.to(device=self.device_type)
 
         return {
@@ -47,7 +51,7 @@ class ImageQualityMetrics(nn.Module):
             "NIQE": self.niqe(preds).mean().item(),
         }
 
-    def full(self, preds: torch.Tensor, targets: torch.Tensor) -> dict:
-        ref_metrics = self.forward(preds=preds, targets=targets)
-        no_ref_metrics = self.no_ref(preds=preds)
+    def full(self, preds: torch.Tensor, targets: torch.Tensor) -> MetricDict:
+        ref_metrics: MetricDict = self.forward(preds=preds, targets=targets)
+        no_ref_metrics: MetricDict = self.no_ref(preds=preds)
         return {**ref_metrics, **no_ref_metrics}

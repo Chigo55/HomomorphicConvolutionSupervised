@@ -1,10 +1,15 @@
 from pathlib import Path
-from typing import List, Literal, Optional, Union, overload
+from typing import Literal, Optional, TypeAlias, Union, overload
 
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from data.utils import LowLightDataset
+from data.utils import LowLightDataset, LowLightSample
+
+StageLiteral: TypeAlias = Literal["fit", "validate", "test", "predict"]
+LowLightDatasetList: TypeAlias = list[LowLightDataset]
+LowLightDataLoader: TypeAlias = DataLoader[LowLightSample]
+LowLightDataLoaderList: TypeAlias = list[LowLightDataLoader]
 
 
 class LowLightDataModule(L.LightningDataModule):
@@ -19,16 +24,21 @@ class LowLightDataModule(L.LightningDataModule):
         num_workers: int = 4,
     ) -> None:
         super().__init__()
-        self.train_dir = Path(train_dir)
-        self.valid_dir = Path(valid_dir)
-        self.bench_dir = Path(bench_dir)
-        self.infer_dir = Path(infer_dir)
+        self.train_dir: Path = Path(train_dir)
+        self.valid_dir: Path = Path(valid_dir)
+        self.bench_dir: Path = Path(bench_dir)
+        self.infer_dir: Path = Path(infer_dir)
 
-        self.image_size = image_size
-        self.batch_size = batch_size
-        self.num_workers = num_workers
+        self.image_size: int = image_size
+        self.batch_size: int = batch_size
+        self.num_workers: int = num_workers
 
-    def setup(self, stage: Optional[str] = None) -> None:
+        self.train_datasets: LowLightDatasetList = []
+        self.valid_datasets: LowLightDatasetList = []
+        self.bench_datasets: LowLightDatasetList = []
+        self.infer_datasets: LowLightDatasetList = []
+
+    def setup(self, stage: Optional[StageLiteral] = None) -> None:
         if stage is None:
             self.train_datasets = self._set_dataset(path=self.train_dir)
             self.valid_datasets = self._set_dataset(path=self.valid_dir)
@@ -46,8 +56,8 @@ class LowLightDataModule(L.LightningDataModule):
         else:
             raise ValueError(f"Invalid stage: {stage}")
 
-    def _set_dataset(self, path: Path) -> List[LowLightDataset]:
-        datasets = []
+    def _set_dataset(self, path: Path) -> LowLightDatasetList:
+        datasets: LowLightDatasetList = []
         for folder in path.iterdir():
             if folder.is_dir():
                 datasets.append(
@@ -58,28 +68,33 @@ class LowLightDataModule(L.LightningDataModule):
     @overload
     def _set_dataloader(
         self,
-        datasets: List[LowLightDataset],
+        datasets: LowLightDatasetList,
         concat: Literal[True],
         shuffle: bool = False,
-    ) -> DataLoader: ...
+    ) -> LowLightDataLoader:
+        ...
 
     @overload
     def _set_dataloader(
         self,
-        datasets: List[LowLightDataset],
+        datasets: LowLightDatasetList,
         concat: Literal[False] = False,
         shuffle: bool = False,
-    ) -> List[DataLoader]: ...
+    ) -> LowLightDataLoaderList:
+        ...
 
     def _set_dataloader(
         self,
-        datasets: List[LowLightDataset],
+        datasets: LowLightDatasetList,
         concat: bool = False,
         shuffle: bool = False,
-    ) -> Union[DataLoader, List[DataLoader]]:
+    ) -> Union[LowLightDataLoader, LowLightDataLoaderList]:
         if concat:
-            dataloader = DataLoader(
-                dataset=ConcatDataset(datasets=datasets),
+            dataset_concat: ConcatDataset[LowLightSample] = ConcatDataset(
+                datasets=datasets
+            )
+            dataloader: LowLightDataLoader = DataLoader(
+                dataset=dataset_concat,
                 batch_size=self.batch_size,
                 shuffle=shuffle,
                 num_workers=self.num_workers,
@@ -87,30 +102,29 @@ class LowLightDataModule(L.LightningDataModule):
                 pin_memory=True,
             )
             return dataloader
-        else:
-            dataloaders = []
-            for dataset in datasets:
-                loader = DataLoader(
-                    dataset=dataset,
-                    batch_size=self.batch_size,
-                    shuffle=shuffle,
-                    num_workers=self.num_workers,
-                    persistent_workers=True,
-                    pin_memory=True,
-                )
-                dataloaders.append(loader)
-            return dataloaders
+        dataloaders: LowLightDataLoaderList = []
+        for dataset in datasets:
+            loader: LowLightDataLoader = DataLoader(
+                dataset=dataset,
+                batch_size=self.batch_size,
+                shuffle=shuffle,
+                num_workers=self.num_workers,
+                persistent_workers=True,
+                pin_memory=True,
+            )
+            dataloaders.append(loader)
+        return dataloaders
 
-    def train_dataloader(self) -> DataLoader:
+    def train_dataloader(self) -> LowLightDataLoader:
         return self._set_dataloader(
             datasets=self.train_datasets, concat=True, shuffle=True
         )
 
-    def val_dataloader(self) -> DataLoader:
+    def val_dataloader(self) -> LowLightDataLoader:
         return self._set_dataloader(datasets=self.valid_datasets, concat=True)
 
-    def test_dataloader(self) -> List[DataLoader]:
+    def test_dataloader(self) -> LowLightDataLoaderList:
         return self._set_dataloader(datasets=self.bench_datasets)
 
-    def predict_dataloader(self) -> List[DataLoader]:
+    def predict_dataloader(self) -> LowLightDataLoaderList:
         return self._set_dataloader(datasets=self.infer_datasets)

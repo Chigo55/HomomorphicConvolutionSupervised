@@ -1,9 +1,18 @@
+from typing import TypeAlias
+
 import torch
 import torch.nn as nn
 
 from model.blocks.featurerestorer import FeatureRestorationBlock
-from model.blocks.homomorphic import ImageComposition, ImageDecomposition
+from model.blocks.homomorphic import (
+    DecompositionOutputs,
+    ImageComposition,
+    ImageDecomposition,
+)
 from model.blocks.illuminationenhancer import IlluminationEnhancer
+
+TensorDict: TypeAlias = dict[str, torch.Tensor]
+EnhancerOutputs: TypeAlias = dict[str, TensorDict]
 
 
 class LowLightEnhancer(nn.Module):
@@ -18,17 +27,19 @@ class LowLightEnhancer(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.decomposition = ImageDecomposition(
-            offset=offset, raw_cutoff=raw_cutoff, trainable=trainable
+        self.decomposition: ImageDecomposition = ImageDecomposition(
+            offset=offset,
+            raw_cutoff=raw_cutoff,
+            trainable=trainable,
         )
-        self.feature_restorer = FeatureRestorationBlock(
+        self.feature_restorer: FeatureRestorationBlock = FeatureRestorationBlock(
             in_channels=1,
             out_channels=1,
             hidden_channels=hidden_channels * num_resolution,
             dropout_ratio=dropout_ratio,
         )
 
-        self.illumination_enhancer = IlluminationEnhancer(
+        self.illumination_enhancer: IlluminationEnhancer = IlluminationEnhancer(
             in_channels=1,
             out_channels=1,
             hidden_channels=hidden_channels,
@@ -37,18 +48,28 @@ class LowLightEnhancer(nn.Module):
             trainable=trainable,
         )
 
-        self.composition = ImageComposition(offset=offset, trainable=trainable)
+        self.composition: ImageComposition = ImageComposition(
+            offset=offset, trainable=trainable
+        )
 
-    def forward(
-        self, low: torch.Tensor
-    ) -> dict[str, dict[str, torch.Tensor]]:
-        luminance, chroma_red, chroma_blue, illuminance, reflectance = self.decomposition(low)
-        enhanced_chroma_red, enhanced_chroma_blue, enhanced_reflectance = self.feature_restorer(chroma_red, chroma_blue, reflectance)
-        enhanced_illuminance = self.illumination_enhancer(illuminance)
-        enhanced_img, enhanced_luminance = self.composition(enhanced_chroma_red, enhanced_chroma_blue, enhanced_illuminance, enhanced_reflectance)
+    def forward(self, low: torch.Tensor) -> EnhancerOutputs:
+        decomposition_outputs: DecompositionOutputs = self.decomposition(low)
+        luminance, chroma_red, chroma_blue, illuminance, reflectance = (
+            decomposition_outputs
+        )
+        enhanced_chroma_red, enhanced_chroma_blue, enhanced_reflectance = (
+            self.feature_restorer(chroma_red, chroma_blue, reflectance)
+        )
+        enhanced_illuminance: torch.Tensor = self.illumination_enhancer(illuminance)
+        enhanced_img, enhanced_luminance = self.composition(
+            enhanced_chroma_red,
+            enhanced_chroma_blue,
+            enhanced_illuminance,
+            enhanced_reflectance,
+        )
         enhanced_img = torch.clamp(input=enhanced_img, min=0.0, max=1.0)
 
-        results = {
+        results: EnhancerOutputs = {
             "low": {
                 "luminance": luminance,
                 "chroma_red": chroma_red,
