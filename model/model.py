@@ -43,10 +43,17 @@ class LowLightEnhancerLightning(L.LightningModule):
 
         self.metric: ImageQualityMetrics = ImageQualityMetrics().eval()
 
-    def forward(self, low: torch.Tensor) -> ResultDict:
+    def forward(
+        self,
+        low: torch.Tensor,
+    ) -> ResultDict:
         return self.model(low)
 
-    def _calculate_loss(self, results: ResultDict, target: torch.Tensor) -> LossDict:
+    def _calculate_loss(
+        self,
+        results: ResultDict,
+        target: torch.Tensor,
+    ) -> LossDict:
         pred: torch.Tensor = results["enhanced"]["rgb"]
 
         loss_mae: torch.Tensor = self.mae_loss(pred, target)
@@ -62,48 +69,72 @@ class LowLightEnhancerLightning(L.LightningModule):
         }
         return losses
 
-    def _shared_step(self, batch: Batch) -> tuple[LossDict, ResultDict]:
+    def _shared_step(
+        self,
+        batch: Batch,
+    ) -> tuple[ResultDict, LossDict]:
         low_img, high_img = batch
         results: ResultDict = self.forward(low=low_img)
         losses: LossDict = self._calculate_loss(results=results, target=high_img)
-        return losses, results
+        return results, losses
 
-    def _log_media(self, stage: str, results: ResultDict, batch_idx: int) -> None:
+    def _logging(
+        self,
+        stage: str,
+        results: ResultDict,
+        losses: LossDict,
+        batch_idx: int,
+    ) -> None:
         if batch_idx % 50 != 0:
             return
 
         low = results["low"]
         enhanced = results["enhanced"]
 
-        for i, (key, val) in enumerate(iterable=low.items()):
-            self.logger.experiment.add_images(
-                f"{stage}/low/{i + 1}_{key}", val, self.global_step
-            )
         for i, (key, val) in enumerate(iterable=enhanced.items()):
             self.logger.experiment.add_images(
                 f"{stage}/enhanced/{i + 1}_{key}", val, self.global_step
             )
+        for i, (key, val) in enumerate(iterable=low.items()):
+            self.logger.experiment.add_images(
+                f"{stage}/low/{i + 1}_{key}", val, self.global_step
+            )
 
-    def _log_losses(self, stage: str, losses: LossDict) -> None:
-        log_dict: dict[str, torch.Tensor] = {}
+        log_dict = {}
         for i, (key, val) in enumerate(iterable=losses.items()):
             log_dict[f"{stage}/{i + 1}_{key}"] = val
 
         self.log_dict(dictionary=log_dict, prog_bar=True)
 
-    def training_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
-        losses, results = self._shared_step(batch=batch)
+    def training_step(
+        self,
+        batch: Batch,
+        batch_idx: int,
+    ) -> torch.Tensor:
+        results, losses = self._shared_step(batch=batch)
 
-        self._log_media(stage="train", results=results, batch_idx=batch_idx)
-        self._log_losses(stage="train", losses=losses)
+        self._logging(
+            stage="train",
+            results=results,
+            losses=losses,
+            batch_idx=batch_idx,
+        )
 
         return losses["total"]
 
-    def validation_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
-        losses, results = self._shared_step(batch=batch)
+    def validation_step(
+        self,
+        batch: Batch,
+        batch_idx: int,
+    ) -> torch.Tensor:
+        results, losses = self._shared_step(batch=batch)
 
-        self._log_media(stage="valid", results=results, batch_idx=batch_idx)
-        self._log_losses(stage="valid", losses=losses)
+        self._logging(
+            stage="valid",
+            results=results,
+            losses=losses,
+            batch_idx=batch_idx,
+        )
 
         return losses["total"]
 
@@ -132,7 +163,10 @@ class LowLightEnhancerLightning(L.LightningModule):
         )
 
     def predict_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
+        self,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
     ) -> torch.Tensor:
         low_img, _ = batch
 

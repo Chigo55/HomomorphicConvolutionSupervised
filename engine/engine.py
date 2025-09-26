@@ -34,7 +34,7 @@ class LightningEngine:
 
         if checkpoint_path:
             self.model: LightningModule = model_class.load_from_checkpoint(
-                checkpoint_path=checkpoint_path
+                checkpoint_path=checkpoint_path,
             )
         else:
             self.model = model_class(hparams=self.hparams)
@@ -85,7 +85,10 @@ class LightningEngine:
         ]
         return callbacks
 
-    def _create_and_run_runner(self, runner_class: Type[_BaseRunner]) -> None:
+    def _create_and_run_runner(
+        self,
+        runner_class: Type[_BaseRunner],
+    ) -> None:
         runner: _BaseRunner = runner_class(
             model=self.model,
             trainer=self.trainer,

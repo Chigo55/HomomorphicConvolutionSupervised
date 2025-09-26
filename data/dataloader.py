@@ -37,7 +37,10 @@ class LowLightDataModule(L.LightningDataModule):
         self.bench_datasets: LowLightDatasetList = []
         self.infer_datasets: LowLightDatasetList = []
 
-    def setup(self, stage: str) -> None:
+    def setup(
+        self,
+        stage: str,
+    ) -> None:
         if stage is None:
             self.train_datasets = self._set_dataset(path=self.train_dir)
             self.valid_datasets = self._set_dataset(path=self.valid_dir)
@@ -55,12 +58,18 @@ class LowLightDataModule(L.LightningDataModule):
         else:
             raise ValueError(f"Invalid stage: {stage}")
 
-    def _set_dataset(self, path: Path) -> LowLightDatasetList:
+    def _set_dataset(
+        self,
+        path: Path,
+    ) -> LowLightDatasetList:
         datasets: LowLightDatasetList = []
         for folder in path.iterdir():
             if folder.is_dir():
                 datasets.append(
-                    LowLightDataset(path=folder, image_size=self.image_size)
+                    LowLightDataset(
+                        path=folder,
+                        image_size=self.image_size,
+                    )
                 )
         return datasets
 
@@ -88,7 +97,7 @@ class LowLightDataModule(L.LightningDataModule):
     ) -> Union[LowLightDataLoader, LowLightDataLoaderList]:
         if concat:
             dataset_concat: ConcatDataset[LowLightSample] = ConcatDataset(
-                datasets=datasets
+                datasets=datasets,
             )
             dataloader: LowLightDataLoader = DataLoader(
                 dataset=dataset_concat,
@@ -114,14 +123,23 @@ class LowLightDataModule(L.LightningDataModule):
 
     def train_dataloader(self) -> LowLightDataLoader:
         return self._set_dataloader(
-            datasets=self.train_datasets, concat=True, shuffle=True
+            datasets=self.train_datasets,
+            concat=True,
+            shuffle=True,
         )
 
     def val_dataloader(self) -> LowLightDataLoader:
-        return self._set_dataloader(datasets=self.valid_datasets, concat=True)
+        return self._set_dataloader(
+            datasets=self.valid_datasets,
+            concat=True,
+        )
 
     def test_dataloader(self) -> LowLightDataLoaderList:
-        return self._set_dataloader(datasets=self.bench_datasets)
+        return self._set_dataloader(
+            datasets=self.bench_datasets,
+        )
 
     def predict_dataloader(self) -> LowLightDataLoaderList:
-        return self._set_dataloader(datasets=self.infer_datasets)
+        return self._set_dataloader(
+            datasets=self.infer_datasets,
+        )

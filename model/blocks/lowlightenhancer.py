@@ -49,7 +49,8 @@ class LowLightEnhancer(nn.Module):
         )
 
         self.composition: ImageComposition = ImageComposition(
-            offset=offset, trainable=trainable
+            offset=offset,
+            trainable=trainable,
         )
 
     def forward(self, low: torch.Tensor) -> EnhancerOutputs:

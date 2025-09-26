@@ -10,7 +10,11 @@ LowLightSample: TypeAlias = tuple[torch.Tensor, torch.Tensor]
 
 
 class LowLightDataset(Dataset[LowLightSample]):
-    def __init__(self, path: Union[str, Path], image_size: int) -> None:
+    def __init__(
+        self,
+        path: Union[str, Path],
+        image_size: int,
+    ) -> None:
         super().__init__()
         self.path: Path = Path(path)
         self.image_size: int = image_size
@@ -38,10 +42,16 @@ class LowLightDataset(Dataset[LowLightSample]):
         high_image: Image.Image = Image.open(fp=high_data).convert(mode="RGB")
 
         low_data_tensor: torch.Tensor = cast(
-            torch.Tensor, self.transform(img=low_image)
+            torch.Tensor,
+            self.transform(
+                img=low_image,
+            ),
         )
         high_data_tensor: torch.Tensor = cast(
-            torch.Tensor, self.transform(img=high_image)
+            torch.Tensor,
+            self.transform(
+                img=high_image,
+            ),
         )
 
         return low_data_tensor, high_data_tensor

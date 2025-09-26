@@ -43,7 +43,10 @@ class ResidualBlock(nn.Module):
         else:
             self.skip_proj = nn.Identity()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         x1: torch.Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
         x2: torch.Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
 
@@ -70,7 +73,10 @@ class DoubleConv(nn.Module):
             dropout_ratio=dropout_ratio,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
         return x
@@ -95,7 +101,10 @@ class Downsampling(nn.Module):
         )
         self.down: nn.AvgPool2d = nn.AvgPool2d(kernel_size=2, stride=2)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         if self.trainable:
             return self.down(self.conv(x))
         return self.down(x)
@@ -122,7 +131,10 @@ class Upsampling(nn.Module):
             scale_factor=2, mode="bilinear", align_corners=True
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         if self.trainable:
             return self.up(self.conv(x))
         return self.up(x)
@@ -210,7 +222,10 @@ class IlluminationEnhancer(nn.Module):
             padding=1,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         x = self.in_conv(x)
 
         residuals: list[torch.Tensor] = []

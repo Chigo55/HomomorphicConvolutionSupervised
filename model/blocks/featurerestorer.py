@@ -43,7 +43,10 @@ class ResidualBlock(nn.Module):
         else:
             self.skip_proj = nn.Identity()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         x1: torch.Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
         x2: torch.Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
 
@@ -71,7 +74,10 @@ class DoubleConv(nn.Module):
             dropout_ratio=dropout_ratio,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
         return x
