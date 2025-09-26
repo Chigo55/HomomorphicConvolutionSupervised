@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional, TypeAlias, Union, overload
+from typing import Literal, TypeAlias, Union, overload
 
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
