@@ -2,7 +2,7 @@ import os
 import random
 from typing import Any, Dict, List
 
-from engine import LightningEngine
+from engine.engine import LightningEngine
 from model.model import LowLightEnhancerLightning
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
@@ -17,7 +17,7 @@ def get_hparams() -> HParams:
         "bench_data_path": "data/3_bench",
         "infer_data_path": "data/4_infer",
         "image_size": 256,
-        "batch_size": 12,
+        "batch_size": 16,
         "num_workers": 10,
         "seed": 42,
         "max_epochs": 100,

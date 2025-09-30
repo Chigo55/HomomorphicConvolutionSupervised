@@ -71,7 +71,7 @@ class LightningEngine:
                 filename="best-{epoch:02d}",
             ),
             ModelCheckpoint(
-                every_n_epochs=1,
+                every_n_epochs=5,
                 save_top_k=-1,
                 filename="epoch-{epoch:02d}",
             ),

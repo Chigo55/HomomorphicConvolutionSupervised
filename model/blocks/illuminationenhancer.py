@@ -163,9 +163,9 @@ class IlluminationEnhancer(nn.Module):
         in_ch: int = 0
         out_ch: int = 0
         down: list[nn.Module] = []
-        for depth in range(num_resolution):
-            in_ch = hidden_channels * (2**depth)
-            out_ch = hidden_channels * (2 ** (depth + 1))
+        for level in range(1, num_resolution + 1):
+            in_ch = hidden_channels * level
+            out_ch = hidden_channels * (level + 1)
             down.append(
                 DoubleConv(
                     in_channels=in_ch,
@@ -184,7 +184,7 @@ class IlluminationEnhancer(nn.Module):
 
         mid: list[nn.Module] = []
         for _ in range(num_resolution // 2):
-            mid_channels: int = hidden_channels * (2**num_resolution)
+            mid_channels: int = hidden_channels * (num_resolution + 1)
             mid.append(
                 DoubleConv(
                     in_channels=mid_channels,
@@ -195,9 +195,9 @@ class IlluminationEnhancer(nn.Module):
         self.mid: nn.ModuleList = nn.ModuleList(modules=mid)
 
         up: list[nn.Module] = []
-        for level in reversed(range(num_resolution)):
-            in_ch = hidden_channels * (2 ** (level + 1))
-            out_ch = hidden_channels * (2**level)
+        for level in range(num_resolution, 0, -1):
+            in_ch = hidden_channels * (level + 1)
+            out_ch = hidden_channels * level
             up.append(
                 Upsampling(
                     in_channels=in_ch,
