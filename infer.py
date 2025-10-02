@@ -1,4 +1,3 @@
-import random
 from typing import Any, Dict, List
 
 from engine.engine import LightningEngine
@@ -14,13 +13,13 @@ def get_hparams() -> HParams:
         "bench_data_path": "data/3_bench",
         "infer_data_path": "data/4_infer",
         "image_size": 256,
-        "batch_size": 8,
+        "batch_size": 1,
         "num_workers": 10,
         "seed": 42,
         "max_epochs": 100,
         "accelerator": "gpu",
         "devices": 1,
-        "precision": "16-mixed",
+        "precision": "32-true",
         "log_every_n_steps": 5,
         "log_dir": "runs/",
         "experiment_name": "test/",
@@ -50,37 +49,15 @@ def main() -> None:
         "adamax",
         "adadelta",
     ]
-    seed: int = random.randint(0, 1000)
 
-    for opt in opts:
-        print(f"\n[STARTING] Optimizer: {opt}")
-        hparams["experiment_name"] = opt
-        hparams["trainable"] = False
-        hparams["seed"] = seed
+    engine = LightningEngine(
+        model_class=LowLightEnhancerLightning,
+        hparams=hparams,
+        checkpoint_path="./best-epoch=81.ckpt",
+    )
 
-        engine = LightningEngine(
-            model_class=LowLightEnhancerLightning,
-            hparams=hparams,
-        )
-
-        engine.train()
-        engine.valid()
-        engine.bench()
-
-    for opt in opts:
-        print(f"\n[STARTING] Optimizer: {opt}")
-        hparams["experiment_name"] = opt
-        hparams["trainable"] = True
-        hparams["seed"] = seed
-
-        engine = LightningEngine(
-            model_class=LowLightEnhancerLightning,
-            hparams=hparams,
-        )
-
-        engine.train()
-        engine.valid()
-        engine.bench()
+    # engine.bench()
+    engine.infer()
 
 
 if __name__ == "__main__":
