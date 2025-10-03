@@ -3,6 +3,7 @@ from typing import Any
 import pyiqa
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 
 class MeanAbsoluteError(nn.L1Loss):
@@ -15,9 +16,9 @@ class MeanAbsoluteError(nn.L1Loss):
 
     def forward(
         self,
-        input: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
+        input: Tensor,
+        target: Tensor,
+    ) -> Tensor:
         return super().forward(input=input, target=target)
 
 
@@ -31,9 +32,9 @@ class MeanSquaredError(nn.MSELoss):
 
     def forward(
         self,
-        input: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
+        input: Tensor,
+        target: Tensor,
+    ) -> Tensor:
         return super().forward(input=input, target=target)
 
 
@@ -49,7 +50,7 @@ class StructuralSimilarity(nn.Module):
 
     def forward(
         self,
-        input: torch.Tensor,
-        targets: torch.Tensor,
-    ) -> torch.Tensor:
+        input: Tensor,
+        targets: Tensor,
+    ) -> Tensor:
         return 1 - torch.mean(input=self.ssim(input, targets))

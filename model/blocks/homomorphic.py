@@ -1,18 +1,8 @@
-from typing import Tuple, TypeAlias
+from typing import Tuple
 
 import torch
 import torch.nn as nn
-
-YCrCbComponents: TypeAlias = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-IlluminationPair: TypeAlias = tuple[torch.Tensor, torch.Tensor]
-DecompositionOutputs: TypeAlias = tuple[
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-]
-CompositionOutputs: TypeAlias = tuple[torch.Tensor, torch.Tensor]
+from torch import Tensor
 
 
 class RGB2YCrCbBlock(nn.Module):
@@ -27,18 +17,18 @@ class RGB2YCrCbBlock(nn.Module):
             requires_grad=trainable,
         )
 
-    def forward(self, x: torch.Tensor) -> YCrCbComponents:
-        r: torch.Tensor = x[:, 0:1, :, :]
-        g: torch.Tensor = x[:, 1:2, :, :]
-        b: torch.Tensor = x[:, 2:3, :, :]
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        r: Tensor = x[:, 0:1, :, :]
+        g: Tensor = x[:, 1:2, :, :]
+        b: Tensor = x[:, 2:3, :, :]
 
-        lu: torch.Tensor = 0.299 * r + 0.587 * g + 0.114 * b
-        cr: torch.Tensor = 0.5 * r - 0.418688 * g - 0.081312 * b
-        cb: torch.Tensor = -0.168736 * r - 0.331264 * g + 0.5 * b
+        y: Tensor = 0.299 * r + 0.587 * g + 0.114 * b
+        cr: Tensor = 0.5 * r - 0.418688 * g - 0.081312 * b
+        cb: Tensor = -0.168736 * r - 0.331264 * g + 0.5 * b
 
         cr = cr + self.offset
         cb = cb + self.offset
-        return lu, cr, cb
+        return y, cr, cb
 
 
 class YCrCb2RGBBlock(nn.Module):
@@ -55,18 +45,18 @@ class YCrCb2RGBBlock(nn.Module):
 
     def forward(
         self,
-        lu: torch.Tensor,
-        cr: torch.Tensor,
-        cb: torch.Tensor,
-    ) -> torch.Tensor:
+        y: Tensor,
+        cr: Tensor,
+        cb: Tensor,
+    ) -> Tensor:
         cr = cr - self.offset
         cb = cb - self.offset
 
-        r: torch.Tensor = lu + (1.403 * cr)
-        g: torch.Tensor = lu + (-0.344 * cb) + (-0.714 * cr)
-        b: torch.Tensor = lu + (1.773 * cb)
+        r: Tensor = y + (1.403 * cr)
+        g: Tensor = y + (-0.344 * cb) + (-0.714 * cr)
+        b: Tensor = y + (1.773 * cb)
 
-        rgb: torch.Tensor = torch.cat(tensors=[r, g, b], dim=1)
+        rgb: Tensor = torch.cat(tensors=[r, g, b], dim=1)
         return rgb
 
 
@@ -77,7 +67,7 @@ class HomomorphicSeparationBlock(nn.Module):
         trainable: bool,
     ) -> None:
         super().__init__()
-        self.cutoff: torch.Tensor = self._cutoff_logit(
+        self.cutoff: Tensor = self._cutoff_logit(
             raw_cutoff=raw_cutoff,
             trainable=trainable,
         )
@@ -86,12 +76,12 @@ class HomomorphicSeparationBlock(nn.Module):
         self,
         raw_cutoff: float,
         trainable: bool,
-    ) -> torch.Tensor:
-        c: torch.Tensor = torch.tensor(data=raw_cutoff)
+    ) -> Tensor:
+        c: Tensor = torch.tensor(data=raw_cutoff)
         c = torch.clamp(input=c, min=1e-5, max=0.5 - 1e-5)
 
-        p: torch.Tensor = torch.clamp(input=2.0 * c, min=1e-5, max=1.0 - 1e-5)
-        logit: torch.Tensor = torch.log(input=p / (1.0 - p))
+        p: Tensor = torch.clamp(input=2.0 * c, min=1e-5, max=1.0 - 1e-5)
+        logit: Tensor = torch.log(input=p / (1.0 - p))
 
         return nn.Parameter(
             data=logit,
@@ -100,50 +90,50 @@ class HomomorphicSeparationBlock(nn.Module):
 
     def _gaussian_lpf(
         self,
-        size: Tuple[int, int],
-        cutoff: torch.Tensor,
-    ) -> torch.Tensor:
+        size: tuple[int, int],
+        cutoff: Tensor,
+    ) -> Tensor:
         height, width = size
-        fy: torch.Tensor = torch.fft.fftfreq(height, d=1.0).to(device=cutoff.device)
-        fx: torch.Tensor = torch.fft.fftfreq(width, d=1.0).to(device=cutoff.device)
+        fy: Tensor = torch.fft.fftfreq(height, d=1.0).to(device=cutoff.device)
+        fx: Tensor = torch.fft.fftfreq(width, d=1.0).to(device=cutoff.device)
         fy = torch.fft.fftshift(fy)
         fx = torch.fft.fftshift(fx)
 
         y, x = torch.meshgrid(fy, fx, indexing="ij")
-        radius: torch.Tensor = torch.sqrt(input=x * x + y * y).to(device=cutoff.device)
+        radius: Tensor = torch.sqrt(input=x * x + y * y).to(device=cutoff.device)
 
         cutoff = 0.5 * torch.sigmoid(input=cutoff)
         cutoff = torch.clamp(input=cutoff, min=1e-5, max=0.5 - 1e-5)
 
-        sigma: torch.Tensor = cutoff / torch.sqrt(
+        sigma: Tensor = cutoff / torch.sqrt(
             input=torch.log(input=torch.tensor(data=2.0, device=cutoff.device))
         )
-        h: torch.Tensor = torch.exp(input=-(radius * radius) / (2.0 * sigma * sigma))
+        h: Tensor = torch.exp(input=-(radius * radius) / (2.0 * sigma * sigma))
         h = h.unsqueeze(dim=0).unsqueeze(dim=0)
         return h
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> IlluminationPair:
+        x: Tensor,
+    ) -> Tuple[Tensor, Tensor]:
         height, width = x.shape[-2:]
 
-        x_log: torch.Tensor = torch.log(input=torch.clamp(input=x, min=1e-5))
+        x_log: Tensor = torch.log(input=torch.clamp(input=x, min=1e-5))
 
-        x_fft: torch.Tensor = torch.fft.fft2(x_log, norm="ortho")
+        x_fft: Tensor = torch.fft.fft2(x_log, norm="ortho")
         x_fft = torch.fft.fftshift(x_fft)
 
-        h: torch.Tensor = self._gaussian_lpf(size=(height, width), cutoff=self.cutoff)
-        low_fft: torch.Tensor = x_fft * h
+        h: Tensor = self._gaussian_lpf(size=(height, width), cutoff=self.cutoff)
+        low_fft: Tensor = x_fft * h
 
         low_log: torch.Tensor = torch.fft.ifft2(
             torch.fft.ifftshift(low_fft), norm="ortho"
         ).real
         high_log: torch.Tensor = x_log - low_log
 
-        low: torch.Tensor = torch.exp(input=low_log)
-        high: torch.Tensor = torch.exp(input=high_log)
-        return low, high
+        il: Tensor = torch.exp(input=low_log)  # illuminance
+        re: Tensor = torch.exp(input=high_log)  # reflectance
+        return il, re
 
 
 class ImageDecomposition(nn.Module):
@@ -169,11 +159,11 @@ class ImageDecomposition(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> DecompositionOutputs:
-        lu, cr, cb = self.rgb2ycrcb(x)
-        il, re = self.homomorphic(lu)
-        return lu, cr, cb, il, re
+        x: Tensor,
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+        y, cr, cb = self.rgb2ycrcb(x)
+        il, re = self.homomorphic(y)
+        return y, cr, cb, il, re
 
 
 class ImageComposition(nn.Module):
@@ -190,11 +180,11 @@ class ImageComposition(nn.Module):
 
     def forward(
         self,
-        cr: torch.Tensor,
-        cb: torch.Tensor,
-        il: torch.Tensor,
-        re: torch.Tensor,
-    ) -> CompositionOutputs:
-        lu: torch.Tensor = il * re
-        rgb: torch.Tensor = self.ycrcb2rgb(lu, cr, cb)
-        return rgb, lu
+        cr: Tensor,
+        cb: Tensor,
+        il: Tensor,
+        re: Tensor,
+    ) -> Tuple[Tensor, Tensor]:
+        y_enh: Tensor = il * re
+        img_enh: Tensor = self.ycrcb2rgb(y_enh, cr, cb)
+        return img_enh, y_enh

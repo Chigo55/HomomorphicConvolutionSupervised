@@ -1,14 +1,12 @@
 import random
-from typing import Any, Dict, List
+from typing import Any
 
 from engine.engine import LightningEngine
 from model.model import LowLightEnhancerLightning
 
-HParams = Dict[str, Any]
 
-
-def get_hparams() -> HParams:
-    hparams: HParams = {
+def get_hparams() -> dict[str, Any]:
+    hparams: dict[str, Any] = {
         "train_data_path": "data/1_train",
         "valid_data_path": "data/2_valid",
         "bench_data_path": "data/3_bench",
@@ -30,54 +28,23 @@ def get_hparams() -> HParams:
         "num_resolution": 4,
         "dropout_ratio": 0.2,
         "offset": 0.5,
-        "raw_cutoff": 0.25,
+        "cutoff": 0.25,
         "trainable": False,
         "device": "cuda",
-        "optim": "sgd",
     }
     return hparams
 
 
 def main() -> None:
-    hparams: HParams = get_hparams()
-    opts: List[str] = [
-        "sgd",
-        "asgd",
-        "rmsprop",
-        "rprop",
-        "adam",
-        "adamw",
-        "adamax",
-        "adadelta",
-    ]
+    hparams: dict[str, Any] = get_hparams()
     seed: int = random.randint(0, 1000)
-
-    for opt in opts:
-        print(f"\n[STARTING] Optimizer: {opt}")
-        hparams["experiment_name"] = opt
-        hparams["trainable"] = False
+    for trainable in (False, True):
+        hparams["trainable"] = trainable
         hparams["seed"] = seed
-
-        engine = LightningEngine(
+        engine: LightningEngine = LightningEngine(
             model_class=LowLightEnhancerLightning,
             hparams=hparams,
         )
-
-        engine.train()
-        engine.valid()
-        engine.bench()
-
-    for opt in opts:
-        print(f"\n[STARTING] Optimizer: {opt}")
-        hparams["experiment_name"] = opt
-        hparams["trainable"] = True
-        hparams["seed"] = seed
-
-        engine = LightningEngine(
-            model_class=LowLightEnhancerLightning,
-            hparams=hparams,
-        )
-
         engine.train()
         engine.valid()
         engine.bench()

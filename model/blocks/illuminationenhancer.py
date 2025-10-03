@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 
 class ResidualBlock(nn.Module):
@@ -45,12 +46,12 @@ class ResidualBlock(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
-        x1: torch.Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
-        x2: torch.Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
+        x: Tensor,
+    ) -> Tensor:
+        x1: Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
+        x2: Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
 
-        residual: torch.Tensor = self.skip_proj(x) + x2
+        residual: Tensor = self.skip_proj(x) + x2
         return residual
 
 
@@ -75,8 +76,8 @@ class DoubleConv(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+    ) -> Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
         return x
@@ -103,8 +104,8 @@ class Downsampling(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+    ) -> Tensor:
         if self.trainable:
             return self.down(self.conv(x))
         return self.down(x)
@@ -133,8 +134,8 @@ class Upsampling(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+    ) -> Tensor:
         if self.trainable:
             return self.up(self.conv(x))
         return self.up(x)
@@ -224,11 +225,11 @@ class IlluminationEnhancer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+    ) -> Tensor:
         x = self.in_conv(x)
 
-        residuals: list[torch.Tensor] = []
+        residuals: list[Tensor] = []
         for module in self.down:
             if isinstance(module, Downsampling):
                 residuals.append(x)

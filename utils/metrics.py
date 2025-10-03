@@ -1,10 +1,6 @@
-from typing import Dict, TypeAlias
-
 import pyiqa
-import torch
 import torch.nn as nn
-
-MetricDict: TypeAlias = Dict[str, float]
+from torch import Tensor
 
 
 class ImageQualityMetrics(nn.Module):
@@ -33,7 +29,7 @@ class ImageQualityMetrics(nn.Module):
             device=device,
         )
 
-    def forward(self, preds: torch.Tensor, targets: torch.Tensor) -> MetricDict:
+    def forward(self, preds: Tensor, targets: Tensor) -> dict[str, float]:
         preds = preds.to(device=self.device_type)
         targets = targets.to(device=self.device_type)
 
@@ -43,7 +39,7 @@ class ImageQualityMetrics(nn.Module):
             "LPIPS": self.lpips(preds, targets).mean().item(),
         }
 
-    def no_ref(self, preds: torch.Tensor) -> MetricDict:
+    def no_ref(self, preds: Tensor) -> dict[str, float]:
         preds = preds.to(device=self.device_type)
 
         return {
@@ -51,7 +47,7 @@ class ImageQualityMetrics(nn.Module):
             "NIQE": self.niqe(preds).mean().item(),
         }
 
-    def full(self, preds: torch.Tensor, targets: torch.Tensor) -> MetricDict:
-        ref_metrics: MetricDict = self.forward(preds=preds, targets=targets)
-        no_ref_metrics: MetricDict = self.no_ref(preds=preds)
+    def full(self, preds: Tensor, targets: Tensor) -> dict[str, float]:
+        ref_metrics = self.forward(preds=preds, targets=targets)
+        no_ref_metrics = self.no_ref(preds=preds)
         return {**ref_metrics, **no_ref_metrics}

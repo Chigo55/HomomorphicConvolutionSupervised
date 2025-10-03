@@ -1,26 +1,15 @@
-from typing import Any, TypeAlias
+from typing import Any, Literal
 
 import lightning as L
-import torch
-from torch.optim.adadelta import Adadelta
-from torch.optim.adagrad import Adagrad
+from torch import Tensor
 from torch.optim.adam import Adam
-from torch.optim.adamax import Adamax
-from torch.optim.adamw import AdamW
-from torch.optim.asgd import ASGD
-from torch.optim.lbfgs import LBFGS
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.optim.optimizer import Optimizer
-from torch.optim.rmsprop import RMSprop
-from torch.optim.rprop import Rprop
-from torch.optim.sgd import SGD
 
-from model.blocks.lowlightenhancer import EnhancerOutputs, LowLightEnhancer
+from data.utils import LowLightSample
+from model.blocks.lowlightenhancer import LowLightEnhancer
 from model.loss import MeanAbsoluteError, MeanSquaredError, StructuralSimilarity
-from utils.metrics import ImageQualityMetrics, MetricDict
-
-LossDict: TypeAlias = dict[str, torch.Tensor]
-ResultDict: TypeAlias = EnhancerOutputs
-Batch: TypeAlias = tuple[torch.Tensor, torch.Tensor]
+from utils.metrics import ImageQualityMetrics
 
 
 class LowLightEnhancerLightning(L.LightningModule):
@@ -33,7 +22,7 @@ class LowLightEnhancerLightning(L.LightningModule):
             num_resolution=self.hparams.get("num_resolution", 4),
             dropout_ratio=self.hparams.get("dropout_ratio", 0.2),
             offset=self.hparams.get("offset", 0.5),
-            raw_cutoff=self.hparams.get("raw_cutoff", 0.1),
+            cutoff=self.hparams.get("cutoff", self.hparams.get("raw_cutoff", 0.1)),
             trainable=self.hparams.get("trainable", False),
         )
 
@@ -45,51 +34,51 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def forward(
         self,
-        low: torch.Tensor,
-    ) -> ResultDict:
+        low: Tensor,
+    ) -> dict[str, dict[str, Tensor]]:
         return self.model(low)
 
     def _calculate_loss(
         self,
-        results: ResultDict,
-        target: torch.Tensor,
-    ) -> LossDict:
-        pred: torch.Tensor = results["enhanced"]["rgb"]
+        outputs: dict[str, dict[str, Tensor]],
+        target: Tensor,
+    ) -> dict[str, Tensor]:
+        pred_img: Tensor = outputs["enhanced"]["rgb"]
 
-        loss_mae: torch.Tensor = self.mae_loss(pred, target)
-        loss_mse: torch.Tensor = self.mse_loss(pred, target)
-        loss_ssim: torch.Tensor = self.ssim_loss(pred, target)
-        loss_total: torch.Tensor = loss_mae + loss_mse + loss_ssim
+        loss_mae: Tensor = self.mae_loss(pred_img, target)
+        loss_mse: Tensor = self.mse_loss(pred_img, target)
+        loss_ssim: Tensor = self.ssim_loss(pred_img, target)
+        loss_total: Tensor = loss_mae + loss_mse + loss_ssim
 
-        losses: LossDict = {
+        loss_dict: dict[str, Tensor] = {
             "mae": loss_mae,
             "mse": loss_mse,
             "ssim": loss_ssim,
             "total": loss_total,
         }
-        return losses
+        return loss_dict
 
     def _shared_step(
         self,
-        batch: Batch,
-    ) -> tuple[ResultDict, LossDict]:
+        batch: LowLightSample,
+    ) -> tuple[dict[str, dict[str, Tensor]], dict[str, Tensor]]:
         low_img, high_img = batch
-        results: ResultDict = self.forward(low=low_img)
-        losses: LossDict = self._calculate_loss(results=results, target=high_img)
-        return results, losses
+        outputs = self.forward(low=low_img)
+        loss_dict = self._calculate_loss(outputs=outputs, target=high_img)
+        return outputs, loss_dict
 
     def _logging(
         self,
-        stage: str,
-        results: ResultDict,
-        losses: LossDict,
+        stage: Literal["train", "valid"],
+        outputs: dict[str, dict[str, Tensor]],
+        loss_dict: dict[str, Tensor],
         batch_idx: int,
     ) -> None:
         if batch_idx % 50 != 0:
             return
 
-        low = results["low"]
-        enhanced = results["enhanced"]
+        low = outputs["low"]
+        enhanced = outputs["enhanced"]
 
         for i, (key, val) in enumerate(iterable=enhanced.items()):
             self.logger.experiment.add_images(
@@ -100,56 +89,54 @@ class LowLightEnhancerLightning(L.LightningModule):
                 f"{stage}/low/{i + 1}_{key}", val, self.global_step
             )
 
-        log_dict = {}
-        for i, (key, val) in enumerate(iterable=losses.items()):
-            log_dict[f"{stage}/{i + 1}_{key}"] = val
+        logs: dict[str, Tensor] = {}
+        for i, (key, val) in enumerate(iterable=loss_dict.items()):
+            logs[f"{stage}/{i + 1}_{key}"] = val
 
-        self.log_dict(dictionary=log_dict, prog_bar=True)
+        self.log_dict(dictionary=logs, prog_bar=True)
 
     def training_step(
         self,
-        batch: Batch,
+        batch: LowLightSample,
         batch_idx: int,
-    ) -> torch.Tensor:
-        results, losses = self._shared_step(batch=batch)
+    ) -> Tensor:
+        outputs, loss_dict = self._shared_step(batch=batch)
 
         self._logging(
             stage="train",
-            results=results,
-            losses=losses,
+            outputs=outputs,
+            loss_dict=loss_dict,
             batch_idx=batch_idx,
         )
 
-        return losses["total"]
+        return loss_dict["total"]
 
     def validation_step(
         self,
-        batch: Batch,
+        batch: LowLightSample,
         batch_idx: int,
-    ) -> torch.Tensor:
-        results, losses = self._shared_step(batch=batch)
+    ) -> Tensor:
+        outputs, loss_dict = self._shared_step(batch=batch)
 
         self._logging(
             stage="valid",
-            results=results,
-            losses=losses,
+            outputs=outputs,
+            loss_dict=loss_dict,
             batch_idx=batch_idx,
         )
 
-        return losses["total"]
+        return loss_dict["total"]
 
     def test_step(
         self,
-        batch: Batch,
+        batch: LowLightSample,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
         low_img, high_img = batch
 
-        results: ResultDict = self.forward(low=low_img)
-        metrics: MetricDict = self.metric.full(
-            preds=results["enhanced"]["rgb"], targets=high_img
-        )
+        outputs = self.forward(low=low_img)
+        metrics = self.metric.full(preds=outputs["enhanced"]["rgb"], targets=high_img)
 
         self.log_dict(
             dictionary={
@@ -164,110 +151,49 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def predict_step(
         self,
-        batch: Any,
+        batch: LowLightSample,
         batch_idx: int,
         dataloader_idx: int = 0,
-    ) -> torch.Tensor:
+    ) -> list[Tensor]:
         low_img, _ = batch
 
-        results: ResultDict = self.forward(low=low_img)
-        return results["enhanced"]["rgb"]
+        results = self.forward(low=low_img)
+        return [results["enhanced"]["rgb"]]
 
-    def configure_optimizers(self) -> Optimizer:
-        optim_name: str = self.hparams["optim"].lower()
+    def configure_optimizers(self) -> tuple[list[Optimizer], list[dict[str, Any]]]:
+        lr = float(self.hparams.get("lr", 1e-3))
 
-        if optim_name == "sgd":
-            return SGD(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-2),
-                momentum=self.hparams.get("momentum", 0.9),
-                weight_decay=self.hparams.get("weight_decay", 1e-4),
-                nesterov=self.hparams.get("nesterov", True),
-            )
+        optimizer: Optimizer = Adam(
+            params=self.parameters(),
+            lr=lr,
+            betas=self.hparams.get("betas", (0.9, 0.999)),
+            eps=self.hparams.get("eps", 1e-8),
+            weight_decay=self.hparams.get("weight_decay", 0.0),
+        )
 
-        if optim_name == "asgd":
-            return ASGD(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-2),
-                lambd=self.hparams.get("lambd", 1e-4),
-                alpha=self.hparams.get("alpha", 0.75),
-                t0=self.hparams.get("t0", 1e6),
-                weight_decay=self.hparams.get("weight_decay", 1e-4),
-            )
+        total_epochs: int = int(self.hparams.get("max_epochs", 100))
+        warmup_epochs: int = max(1, int(0.05 * total_epochs))
 
-        if optim_name == "rmsprop":
-            return RMSprop(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-3),
-                alpha=self.hparams.get("alpha", 0.99),
-                eps=self.hparams.get("eps", 1e-8),
-                momentum=self.hparams.get("momentum", 0.9),
-                weight_decay=self.hparams.get("weight_decay", 0),
-            )
+        warmup = LinearLR(
+            optimizer=optimizer,
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        cosine = CosineAnnealingLR(
+            optimizer=optimizer,
+            T_max=total_epochs - warmup_epochs,
+            eta_min=lr * 0.01,
+        )
+        scheduler = SequentialLR(
+            optimizer=optimizer,
+            schedulers=[warmup, cosine],
+            milestones=[warmup_epochs],
+        )
 
-        if optim_name == "rprop":
-            return Rprop(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-2),
-                etas=self.hparams.get("etas", (0.5, 1.2)),
-                step_sizes=self.hparams.get("step_sizes", (1e-6, 50)),
-            )
-
-        if optim_name == "adam":
-            return Adam(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-3),
-                betas=self.hparams.get("betas", (0.9, 0.999)),
-                eps=self.hparams.get("eps", 1e-8),
-                weight_decay=self.hparams.get("weight_decay", 0),
-            )
-
-        if optim_name == "adamw":
-            return AdamW(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-3),
-                betas=self.hparams.get("betas", (0.9, 0.999)),
-                eps=self.hparams.get("eps", 1e-8),
-                weight_decay=self.hparams.get("weight_decay", 1e-2),
-            )
-
-        if optim_name == "adamax":
-            return Adamax(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 2e-3),
-                betas=self.hparams.get("betas", (0.9, 0.999)),
-                eps=self.hparams.get("eps", 1e-8),
-                weight_decay=self.hparams.get("weight_decay", 0),
-            )
-
-        if optim_name == "adagrad":
-            return Adagrad(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1e-2),
-                lr_decay=self.hparams.get("lr_decay", 0),
-                weight_decay=self.hparams.get("weight_decay", 0),
-                eps=self.hparams.get("eps", 1e-10),
-            )
-
-        if optim_name == "adadelta":
-            return Adadelta(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1.0),
-                rho=self.hparams.get("rho", 0.9),
-                eps=self.hparams.get("eps", 1e-6),
-                weight_decay=self.hparams.get("weight_decay", 0),
-            )
-
-        if optim_name == "lbfgs":
-            return LBFGS(
-                params=self.parameters(),
-                lr=self.hparams.get("lr", 1.0),
-                max_iter=self.hparams.get("max_iter", 20),
-                max_eval=self.hparams.get("max_eval"),
-                tolerance_grad=self.hparams.get("tolerance_grad", 1e-7),
-                tolerance_change=self.hparams.get("tolerance_change", 1e-9),
-                history_size=self.hparams.get("history_size", 100),
-                line_search_fn=self.hparams.get("line_search_fn"),
-            )
-
-        raise ValueError(f"Unsupported optimizer: {optim_name}")
+        sched_cfg: dict[str, Any] = {
+            "scheduler": scheduler,
+            "interval": "epoch",
+            "frequency": 1,
+        }
+        return [optimizer], [sched_cfg]

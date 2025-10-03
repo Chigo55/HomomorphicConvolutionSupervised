@@ -1,4 +1,4 @@
-from typing import Any, Optional, Type
+from typing import Any
 
 from lightning import LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import (
@@ -17,23 +17,21 @@ from engine.runner import (
     _BaseRunner,
 )
 
-HParamsDict = dict[str, Any]
-
 
 class LightningEngine:
     def __init__(
         self,
-        model_class: Type[LightningModule],
-        hparams: HParamsDict,
-        checkpoint_path: Optional[str] = None,
+        model_class: type[LightningModule],
+        hparams: dict[str, Any],
+        checkpoint_path: str | None = None,
     ) -> None:
-        self.hparams: HParamsDict = hparams
-        self.checkpoint_path: Optional[str] = checkpoint_path
+        self.hparams: dict[str, Any] = hparams
+        self.checkpoint_path: str | None = checkpoint_path
 
         seed_everything(seed=self.hparams.get("seed", 42), workers=True)
 
         if checkpoint_path:
-            self.model: LightningModule = model_class.load_from_checkpoint(
+            self.model = model_class.load_from_checkpoint(
                 checkpoint_path=checkpoint_path,
             )
         else:
@@ -48,7 +46,7 @@ class LightningEngine:
             max_epochs=self.hparams.get("max_epochs", 100),
             accelerator=self.hparams.get("accelerator", "gpu"),
             devices=self.hparams.get("devices", 1),
-            precision=self.hparams.get("precision", "32-true"),
+            precision=self.hparams.get("precision", "16-mixed"),
             log_every_n_steps=self.hparams.get("log_every_n_steps", 5),
             logger=self.logger,
             callbacks=self.callbacks,
@@ -87,7 +85,7 @@ class LightningEngine:
 
     def _create_and_run_runner(
         self,
-        runner_class: Type[_BaseRunner],
+        runner_class: type[_BaseRunner],
     ) -> None:
         runner: _BaseRunner = runner_class(
             model=self.model,

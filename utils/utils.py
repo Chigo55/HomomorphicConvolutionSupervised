@@ -1,20 +1,15 @@
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence, TypeAlias
+from typing import Any
 
 import matplotlib.pyplot as plt
-import torch
 import torch.nn as nn
 import torchvision.transforms.functional as F
+from torch import Tensor
 from torchinfo import summary
 from torchvision.utils import save_image
 
-PathLike: TypeAlias = str | Path
-TensorBatch: TypeAlias = Iterable[torch.Tensor]
-TensorBatches: TypeAlias = Iterable[TensorBatch]
-MetricMapping: TypeAlias = Mapping[str, float]
 
-
-def show_batch(images: torch.Tensor, ncols: int = 8) -> None:
+def show_batch(images: Tensor, ncols: int = 8) -> None:
     nimgs: int = images.shape[0]
     nrows: int = (nimgs + ncols - 1) // ncols
     plt.figure(figsize=(ncols * 3, nrows * 3))
@@ -27,29 +22,29 @@ def show_batch(images: torch.Tensor, ncols: int = 8) -> None:
     plt.show()
 
 
-def make_dirs(path: PathLike) -> Path:
+def make_dirs(path: str) -> str:
     path_obj: Path = Path(path)
     path_obj.mkdir(parents=True, exist_ok=True)
-    return path_obj
+    return path
 
 
-def print_metrics(metrics: MetricMapping, prefix: str = "") -> None:
+def print_metrics(metrics: dict[str, float], prefix: str = "") -> None:
     for key, value in metrics.items():
         print(f"{prefix}{key}: {value:.4f}")
 
 
 def save_images(
-    results: TensorBatches,
-    save_dir: PathLike,
+    batch_list: list[list[Tensor]],
+    out_dir: Path,
     prefix: str = "infer",
     ext: str = "png",
 ) -> None:
-    for i, datasets in enumerate(iterable=results):
-        save_path: Path = make_dirs(path=f"{save_dir}/batch{i + 1}")
+    for i, datasets in enumerate(iterable=batch_list):
+        save_path_str: str = make_dirs(path=f"{out_dir}/batch{i + 1}")
         for ii, batch in enumerate(iterable=datasets):
             save_image(
-                tensor=batch,
-                fp=save_path / f"{prefix}_{ii:04d}.{ext}",
+                tensor=batch,  # `save_image` can take Path, but str is fine
+                fp=f"{save_path_str}/{prefix}_{ii:04d}.{ext}",
                 nrow=8,
                 padding=2,
                 normalize=True,
@@ -63,7 +58,7 @@ def count_parameters(model: nn.Module) -> int:
 
 def summarize_model(
     model: nn.Module,
-    input_size: Sequence[int] | Sequence[Sequence[int]] | None = None,
+    input_size: list[int] | list[list[int]] | None = None,
     input_data: Any = None,
     **kwargs: Any,
 ) -> Any:

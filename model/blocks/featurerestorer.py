@@ -1,5 +1,7 @@
-import torch
+from typing import Tuple
+
 import torch.nn as nn
+from torch import Tensor
 
 
 class ResidualBlock(nn.Module):
@@ -45,12 +47,12 @@ class ResidualBlock(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
-        x1: torch.Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
-        x2: torch.Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
+        x: Tensor,
+    ) -> Tensor:
+        x1: Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
+        x2: Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
 
-        residual: torch.Tensor = self.skip_proj(x) + x2
+        residual: Tensor = self.skip_proj(x) + x2
         return residual
 
 
@@ -59,25 +61,25 @@ class DoubleConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        hidden_channels: int,
+        mid_channels: int,
         dropout_ratio: float,
     ) -> None:
         super().__init__()
         self.conv1: ResidualBlock = ResidualBlock(
             in_channels=in_channels,
-            out_channels=hidden_channels,
+            out_channels=mid_channels,
             dropout_ratio=dropout_ratio,
         )
         self.conv2: ResidualBlock = ResidualBlock(
-            in_channels=hidden_channels,
+            in_channels=mid_channels,
             out_channels=out_channels,
             dropout_ratio=dropout_ratio,
         )
 
     def forward(
         self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+    ) -> Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
         return x
@@ -95,29 +97,29 @@ class FeatureRestorationBlock(nn.Module):
         self.conv_cr: DoubleConv = DoubleConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            hidden_channels=hidden_channels,
+            mid_channels=hidden_channels,
             dropout_ratio=dropout_ratio,
         )
         self.conv_cb: DoubleConv = DoubleConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            hidden_channels=hidden_channels,
+            mid_channels=hidden_channels,
             dropout_ratio=dropout_ratio,
         )
         self.conv_re: DoubleConv = DoubleConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            hidden_channels=hidden_channels,
+            mid_channels=hidden_channels,
             dropout_ratio=dropout_ratio,
         )
 
     def forward(
         self,
-        cr: torch.Tensor,
-        cb: torch.Tensor,
-        re: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        cr = self.conv_cr(cr)
-        cb = self.conv_cb(cb)
-        re = self.conv_re(re)
-        return cr, cb, re
+        cr: Tensor,
+        cb: Tensor,
+        re: Tensor,
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        cr_restored = self.conv_cr(cr)
+        cb_restored = self.conv_cb(cb)
+        re_restored = self.conv_re(re)
+        return cr_restored, cb_restored, re_restored

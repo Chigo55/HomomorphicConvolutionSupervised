@@ -49,7 +49,7 @@ def main() -> None:
         checkpoint_path=DEFAULT_CHECKPOINT,
     )
 
-    engine.infer()
+    engine.valid()
 
 
 if __name__ == "__main__":
