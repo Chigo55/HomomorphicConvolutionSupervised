@@ -3,6 +3,8 @@ from typing import Tuple
 import torch.nn as nn
 from torch import Tensor
 
+from model.blocks.attention import SelfAttentionBlock
+
 
 class ResidualBlock(nn.Module):
     def __init__(
@@ -61,26 +63,44 @@ class DoubleConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        mid_channels: int,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: int,
         dropout_ratio: float,
     ) -> None:
         super().__init__()
         self.conv1: ResidualBlock = ResidualBlock(
             in_channels=in_channels,
-            out_channels=mid_channels,
+            out_channels=embed_dim,
+            dropout_ratio=dropout_ratio,
+        )
+        self.attn = SelfAttentionBlock(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
             dropout_ratio=dropout_ratio,
         )
         self.conv2: ResidualBlock = ResidualBlock(
-            in_channels=mid_channels,
+            in_channels=embed_dim,
             out_channels=out_channels,
             dropout_ratio=dropout_ratio,
         )
+
+    def flatten(self, x):
+        return x.flatten(start_dim=2, end_dim=3).permute(0, 2, 1)
+
+    def unflatten(self, x, h, w):
+        return x.permute(0, 2, 1).unflatten(dim=2, sizes=(h, w))
 
     def forward(
         self,
         x: Tensor,
     ) -> Tensor:
+        b, c, h, w = x.shape
         x = self.conv1(x)
+        x = self.flatten(x=x)
+        x = self.attn(x)
+        x = self.unflatten(x=x, h=h, w=w)
         x = self.conv2(x)
         return x
 
@@ -90,27 +110,38 @@ class FeatureRestorationBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        hidden_channels: int,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: int,
         dropout_ratio: float,
     ) -> None:
         super().__init__()
-        self.conv_cr: DoubleConv = DoubleConv(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            mid_channels=hidden_channels,
-            dropout_ratio=dropout_ratio,
+        self.cr_conv = DoubleConv(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    embed_dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    dropout_ratio=dropout_ratio,
+
         )
-        self.conv_cb: DoubleConv = DoubleConv(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            mid_channels=hidden_channels,
-            dropout_ratio=dropout_ratio,
+        self.cb_conv = DoubleConv(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    embed_dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    dropout_ratio=dropout_ratio,
+
         )
-        self.conv_re: DoubleConv = DoubleConv(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            mid_channels=hidden_channels,
-            dropout_ratio=dropout_ratio,
+        self.re_conv = DoubleConv(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    embed_dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    dropout_ratio=dropout_ratio,
+
         )
 
     def forward(
@@ -119,7 +150,7 @@ class FeatureRestorationBlock(nn.Module):
         cb: Tensor,
         re: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        cr_restored = self.conv_cr(cr)
-        cb_restored = self.conv_cb(cb)
-        re_restored = self.conv_re(re)
-        return cr_restored, cb_restored, re_restored
+        cr = self.cr_conv(cr)
+        cb = self.cr_conv(cb)
+        re = self.cr_conv(re)
+        return cr, cb, re

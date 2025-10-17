@@ -18,7 +18,9 @@ class LowLightEnhancerLightning(L.LightningModule):
         self.save_hyperparameters(hparams)
 
         self.model: LowLightEnhancer = LowLightEnhancer(
-            hidden_channels=self.hparams.get("hidden_channels", 64),
+            embed_dim=self.hparams.get("embed_dim", 32),
+            num_heads=self.hparams.get("num_heads", 8),
+            mlp_ratio=self.hparams.get("mlp_ratio", 4),
             num_resolution=self.hparams.get("num_resolution", 4),
             dropout_ratio=self.hparams.get("dropout_ratio", 0.2),
             offset=self.hparams.get("offset", 0.5),

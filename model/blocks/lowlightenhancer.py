@@ -10,7 +10,9 @@ from model.blocks.illuminationenhancer import IlluminationEnhancer
 class LowLightEnhancer(nn.Module):
     def __init__(
         self,
-        hidden_channels: int,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: int,
         num_resolution: int,
         dropout_ratio: float,
         cutoff: float,
@@ -21,28 +23,29 @@ class LowLightEnhancer(nn.Module):
 
         self.decomposition: ImageDecomposition = ImageDecomposition(
             offset=offset,
-            raw_cutoff=cutoff,
-            trainable=trainable,
+            cutoff=cutoff,
         )
         self.feature_restorer: FeatureRestorationBlock = FeatureRestorationBlock(
             in_channels=1,
             out_channels=1,
-            hidden_channels=hidden_channels * num_resolution,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
             dropout_ratio=dropout_ratio,
         )
 
         self.illumination_enhancer: IlluminationEnhancer = IlluminationEnhancer(
             in_channels=1,
             out_channels=1,
-            hidden_channels=hidden_channels,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
             num_resolution=num_resolution,
             dropout_ratio=dropout_ratio,
-            trainable=trainable,
         )
 
         self.composition: ImageComposition = ImageComposition(
             offset=offset,
-            trainable=trainable,
         )
 
     def forward(self, low: Tensor) -> dict[str, dict[str, Tensor]]:

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from model.blocks.attention import SelfAttentionBlock
+
 
 class ResidualBlock(nn.Module):
     def __init__(
@@ -59,26 +61,45 @@ class DoubleConv(nn.Module):
     def __init__(
         self,
         in_channels: int,
+        embed_dim: int,
         out_channels: int,
+        num_heads: int,
+        mlp_ratio: int,
         dropout_ratio: float,
     ) -> None:
         super().__init__()
         self.conv1: ResidualBlock = ResidualBlock(
             in_channels=in_channels,
-            out_channels=out_channels,
+            out_channels=embed_dim,
+            dropout_ratio=dropout_ratio,
+        )
+        self.attn = SelfAttentionBlock(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
             dropout_ratio=dropout_ratio,
         )
         self.conv2: ResidualBlock = ResidualBlock(
-            in_channels=out_channels,
+            in_channels=embed_dim,
             out_channels=out_channels,
             dropout_ratio=dropout_ratio,
         )
+
+    def flatten(self, x):
+        return x.flatten(start_dim=2, end_dim=3).permute(0, 2, 1)
+
+    def unflatten(self, x, h, w):
+        return x.permute(0, 2, 1).unflatten(dim=2, sizes=(h, w))
 
     def forward(
         self,
         x: Tensor,
     ) -> Tensor:
+        b, c, h, w = x.shape
         x = self.conv1(x)
+        x = self.flatten(x=x)
+        x = self.attn(x)
+        x = self.unflatten(x=x, h=h, w=w)
         x = self.conv2(x)
         return x
 
@@ -88,27 +109,22 @@ class Downsampling(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        trainable: bool,
     ) -> None:
         super().__init__()
-        self.trainable: bool = trainable
-
         self.conv: nn.Conv2d = nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+            bias=False,
         )
-        self.down: nn.AvgPool2d = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(
         self,
         x: Tensor,
     ) -> Tensor:
-        if self.trainable:
-            return self.down(self.conv(x))
-        return self.down(x)
+        return self.conv(x)
 
 
 class Upsampling(nn.Module):
@@ -116,29 +132,23 @@ class Upsampling(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        trainable: bool,
     ) -> None:
         super().__init__()
-        self.trainable: bool = trainable
-
-        self.conv: nn.Conv2d = nn.Conv2d(
+        self.conv: nn.ConvTranspose2d = nn.ConvTranspose2d(
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+            bias=False,
         )
-        self.up: nn.Upsample = nn.Upsample(
-            scale_factor=2, mode="bilinear", align_corners=True
-        )
+
 
     def forward(
         self,
         x: Tensor,
     ) -> Tensor:
-        if self.trainable:
-            return self.up(self.conv(x))
-        return self.up(x)
+        return self.conv(x)
 
 
 class IlluminationEnhancer(nn.Module):
@@ -146,77 +156,81 @@ class IlluminationEnhancer(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        hidden_channels: int,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: int,
         num_resolution: int,
         dropout_ratio: float,
-        trainable: bool,
     ) -> None:
         super().__init__()
 
         self.in_conv: nn.Conv2d = nn.Conv2d(
             in_channels=in_channels,
-            out_channels=hidden_channels,
+            out_channels=embed_dim,
             kernel_size=3,
             stride=1,
             padding=1,
         )
-
-        in_ch: int = 0
-        out_ch: int = 0
+        dim_level = embed_dim
         down: list[nn.Module] = []
-        for level in range(1, num_resolution + 1):
-            in_ch = hidden_channels * level
-            out_ch = hidden_channels * (level + 1)
+        for level in range(num_resolution):
             down.append(
                 DoubleConv(
-                    in_channels=in_ch,
-                    out_channels=out_ch,
+                    in_channels=dim_level,
+                    embed_dim=dim_level,
+                    out_channels=dim_level,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
                     dropout_ratio=dropout_ratio,
                 )
             )
             down.append(
                 Downsampling(
-                    in_channels=out_ch,
-                    out_channels=out_ch,
-                    trainable=trainable,
+                    in_channels=dim_level,
+                    out_channels=dim_level * 2,
                 )
             )
+            dim_level *= 2
         self.down: nn.ModuleList = nn.ModuleList(modules=down)
 
         mid: list[nn.Module] = []
         for _ in range(num_resolution // 2):
-            mid_channels: int = hidden_channels * (num_resolution + 1)
             mid.append(
                 DoubleConv(
-                    in_channels=mid_channels,
-                    out_channels=mid_channels,
+                    in_channels=dim_level,
+                    embed_dim=dim_level,
+                    out_channels=dim_level,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
                     dropout_ratio=dropout_ratio,
                 )
             )
         self.mid: nn.ModuleList = nn.ModuleList(modules=mid)
 
         up: list[nn.Module] = []
-        for level in range(num_resolution, 0, -1):
-            in_ch = hidden_channels * (level + 1)
-            out_ch = hidden_channels * level
+        for level in range(num_resolution):
             up.append(
                 Upsampling(
-                    in_channels=in_ch,
-                    out_channels=in_ch,
-                    trainable=trainable,
+                    in_channels=dim_level,
+                    out_channels=dim_level // 2,
                 )
             )
             up.append(
                 DoubleConv(
-                    in_channels=in_ch * 2,
-                    out_channels=out_ch,
+                    in_channels=dim_level,
+                    embed_dim=dim_level,
+                    out_channels=dim_level // 2,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
                     dropout_ratio=dropout_ratio,
                 )
             )
+            dim_level //= 2
+
         self.up: nn.ModuleList = nn.ModuleList(modules=up)
 
         self.out_conv: nn.Conv2d = nn.Conv2d(
-            in_channels=out_ch,
+            in_channels=embed_dim,
             out_channels=out_channels,
             kernel_size=3,
             stride=1,

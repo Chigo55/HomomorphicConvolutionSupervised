@@ -11,8 +11,8 @@ def get_hparams() -> dict[str, Any]:
         "valid_data_path": "data/2_valid",
         "bench_data_path": "data/3_bench",
         "infer_data_path": "data/4_infer",
-        "image_size": 256,
-        "batch_size": 8,
+        "image_size": 512,
+        "batch_size": 4,
         "num_workers": 10,
         "seed": 42,
         "max_epochs": 100,
@@ -21,10 +21,12 @@ def get_hparams() -> dict[str, Any]:
         "precision": "16-mixed",
         "log_every_n_steps": 5,
         "log_dir": "runs/",
-        "experiment_name": "test/",
+        "experiment_name": "add_vit/",
         "inference": "inference/",
-        "patience": 20,
-        "hidden_channels": 64,
+        "patience": 100,
+        "embed_dim": 32,
+        "num_heads": 8,
+        "mlp_ratio": 4,
         "num_resolution": 4,
         "dropout_ratio": 0.2,
         "offset": 0.5,
@@ -38,16 +40,15 @@ def get_hparams() -> dict[str, Any]:
 def main() -> None:
     hparams: dict[str, Any] = get_hparams()
     seed: int = random.randint(0, 1000)
-    for trainable in (False, True):
-        hparams["trainable"] = trainable
-        hparams["seed"] = seed
-        engine: LightningEngine = LightningEngine(
-            model_class=LowLightEnhancerLightning,
-            hparams=hparams,
-        )
-        engine.train()
-        engine.valid()
-        engine.bench()
+
+    hparams["seed"] = seed
+    engine: LightningEngine = LightningEngine(
+        model_class=LowLightEnhancerLightning,
+        hparams=hparams,
+    )
+    engine.train()
+    engine.valid()
+    engine.bench()
 
 
 if __name__ == "__main__":
