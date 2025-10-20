@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from model.blocks.attention import SelfAttentionBlock
+from model.utils import Flatten, Unflatten
 
 
 class ResidualBlock(nn.Module):
@@ -51,11 +52,12 @@ class ResidualBlock(nn.Module):
         self,
         x: Tensor,
     ) -> Tensor:
-        x1: Tensor = self.conv1(self.dropout1(self.act1(self.bn1(x))))
-        x2: Tensor = self.conv2(self.dropout2(self.act2(self.bn2(x1))))
+        res = x
+        x = self.conv1(self.dropout1(self.act1(self.bn1(x))))
+        x = self.conv2(self.dropout2(self.act2(self.bn2(x))))
+        x = self.skip_proj(res) + x
 
-        residual: Tensor = self.skip_proj(x) + x2
-        return residual
+        return x
 
 
 class DoubleConv(nn.Module):
@@ -86,21 +88,15 @@ class DoubleConv(nn.Module):
             dropout_ratio=dropout_ratio,
         )
 
-    def flatten(self, x):
-        return x.flatten(start_dim=2, end_dim=3).permute(0, 2, 1)
-
-    def unflatten(self, x, h, w):
-        return x.permute(0, 2, 1).unflatten(dim=2, sizes=(h, w))
-
     def forward(
         self,
         x: Tensor,
     ) -> Tensor:
         b, c, h, w = x.shape
         x = self.conv1(x)
-        x = self.flatten(x=x)
+        x = Flatten(x=x)
         x = self.attn(x)
-        x = self.unflatten(x=x, h=h, w=w)
+        x = Unflatten(x=x, h=h, w=w)
         x = self.conv2(x)
         return x
 
@@ -117,40 +113,27 @@ class FeatureRestorationBlock(nn.Module):
     ) -> None:
         super().__init__()
         self.cr_conv = DoubleConv(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    embed_dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    dropout_ratio=dropout_ratio,
-
+            in_channels=in_channels,
+            out_channels=out_channels,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            dropout_ratio=dropout_ratio,
         )
         self.cb_conv = DoubleConv(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    embed_dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    dropout_ratio=dropout_ratio,
-
-        )
-        self.re_conv = DoubleConv(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    embed_dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    dropout_ratio=dropout_ratio,
-
+            in_channels=in_channels,
+            out_channels=out_channels,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            dropout_ratio=dropout_ratio,
         )
 
     def forward(
         self,
         cr: Tensor,
         cb: Tensor,
-        re: Tensor,
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor]:
         cr = self.cr_conv(cr)
         cb = self.cr_conv(cb)
-        re = self.cr_conv(re)
-        return cr, cb, re
+        return cr, cb

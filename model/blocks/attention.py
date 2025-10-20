@@ -46,7 +46,7 @@ class SelfAttention(nn.Module):
             batch_first=True,
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor):
         x = self.layer_norm(x)
         attn, _ = self.attn(query=x, key=x, value=x, need_weights=False)
         return attn
@@ -74,5 +74,48 @@ class SelfAttentionBlock(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.attn(x) + x
+        x = self.mlp(x) + x
+        return x
+
+
+class CrossAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, dropout_ratio: float):
+        super().__init__()
+        self.layer_norm = nn.LayerNorm(normalized_shape=embed_dim)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout_ratio,
+            batch_first=True,
+        )
+
+    def forward(self, x: Tensor, c: Tensor) -> Tensor:
+        x = self.layer_norm(x)
+        attn, _ = self.attn(query=x, key=c, value=c, need_weights=False)
+        return attn
+
+
+class CrossAttentionBlock(nn.Module):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: int,
+        dropout_ratio: float,
+    ):
+        super().__init__()
+        self.attn = CrossAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout_ratio=dropout_ratio,
+        )
+        self.mlp = MultiLayerPerceptron(
+            embed_dim=embed_dim,
+            mlp_ratio=mlp_ratio,
+            dropout_ratio=dropout_ratio,
+        )
+
+    def forward(self, x: Tensor, c: Tensor) -> Tensor:
+        x = self.attn(x, c) + x
         x = self.mlp(x) + x
         return x

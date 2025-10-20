@@ -17,7 +17,6 @@ class LowLightEnhancer(nn.Module):
         dropout_ratio: float,
         cutoff: float,
         offset: float,
-        trainable: bool,
     ) -> None:
         super().__init__()
 
@@ -36,7 +35,7 @@ class LowLightEnhancer(nn.Module):
 
         self.illumination_enhancer: IlluminationEnhancer = IlluminationEnhancer(
             in_channels=1,
-            out_channels=1,
+            out_channels=2,
             embed_dim=embed_dim,
             num_heads=num_heads,
             mlp_ratio=mlp_ratio,
@@ -51,19 +50,17 @@ class LowLightEnhancer(nn.Module):
     def forward(self, low: Tensor) -> dict[str, dict[str, Tensor]]:
         y, cr, cb, il, re = self.decomposition(low)
 
-        cr_restored, cb_restored, re_restored = self.feature_restorer(
+        cr_restored, cb_restored = self.feature_restorer(
             cr,
             cb,
-            re,
         )
 
-        il_enh: Tensor = self.illumination_enhancer(il)
+        y_enhenced: Tensor = self.illumination_enhancer(il, re)
 
-        img_enh, y_enh = self.composition(
+        img_enh = self.composition(
             cr_restored,
             cb_restored,
-            il_enh,
-            re_restored,
+            y_enhenced,
         )
         img_enh = torch.clamp(input=img_enh, min=0.0, max=1.0)
 
@@ -77,11 +74,9 @@ class LowLightEnhancer(nn.Module):
                 "rgb": low,
             },
             "enhanced": {
-                "luminance": y_enh,
+                "luminance": y_enhenced,
                 "chroma_red": cr_restored,
                 "chroma_blue": cb_restored,
-                "illuminance": il_enh,
-                "reflectance": re_restored,
                 "rgb": img_enh,
             },
         }

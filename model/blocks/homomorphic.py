@@ -176,9 +176,7 @@ class ImageComposition(nn.Module):
         self,
         cr: Tensor,
         cb: Tensor,
-        il: Tensor,
-        re: Tensor,
-    ) -> Tuple[Tensor, Tensor]:
-        y_enh: Tensor = il * re
-        img_enh: Tensor = self.ycrcb2rgb(y_enh, cr, cb)
-        return img_enh, y_enh
+        y: Tensor,
+    ) -> Tensor:
+        img_enh: Tensor = self.ycrcb2rgb(y, cr, cb)
+        return img_enh

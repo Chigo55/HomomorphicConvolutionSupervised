@@ -66,7 +66,7 @@ class LightningEngine:
                 monitor="valid/4_total",
                 save_top_k=1,
                 mode="min",
-                filename="best-{epoch:02d}",
+                filename="best",
             ),
             ModelCheckpoint(
                 every_n_epochs=5,
