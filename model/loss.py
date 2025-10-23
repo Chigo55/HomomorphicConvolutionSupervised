@@ -45,7 +45,7 @@ class StructuralSimilarity(nn.Module):
     ) -> None:
         super().__init__()
         self.ssim = pyiqa.create_metric(
-            metric_name="ssimc", device=device, as_loss=True
+            metric_name="ssimc", device=device, as_loss=True,
         )
 
     def forward(

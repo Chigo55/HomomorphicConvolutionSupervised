@@ -15,8 +15,8 @@ class LowLightEnhancer(nn.Module):
         mlp_ratio: int,
         num_resolution: int,
         dropout_ratio: float,
-        cutoff: float,
         offset: float,
+        cutoff: float,
     ) -> None:
         super().__init__()
 
@@ -35,7 +35,7 @@ class LowLightEnhancer(nn.Module):
 
         self.illumination_enhancer: IlluminationEnhancer = IlluminationEnhancer(
             in_channels=1,
-            out_channels=2,
+            out_channels=1,
             embed_dim=embed_dim,
             num_heads=num_heads,
             mlp_ratio=mlp_ratio,

@@ -1,8 +1,9 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import lightning as L
 from torch import Tensor
 from torch.optim.adam import Adam
+from transformers import get_cosine_schedule_with_warmup
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.optim.optimizer import Optimizer
 
@@ -24,8 +25,7 @@ class LowLightEnhancerLightning(L.LightningModule):
             num_resolution=self.hparams.get("num_resolution", 4),
             dropout_ratio=self.hparams.get("dropout_ratio", 0.2),
             offset=self.hparams.get("offset", 0.5),
-            cutoff=self.hparams.get("cutoff", self.hparams.get("raw_cutoff", 0.1)),
-            trainable=self.hparams.get("trainable", False),
+            cutoff=self.hparams.get("cutoff", self.hparams.get("cutoff", 0.1)),
         )
 
         self.mae_loss: MeanAbsoluteError = MeanAbsoluteError().eval()
@@ -142,11 +142,11 @@ class LowLightEnhancerLightning(L.LightningModule):
 
         self.log_dict(
             dictionary={
-                "test/1_PSNR": metrics["PSNR"],
-                "test/2_SSIM": metrics["SSIM"],
-                "test/3_LPIPS": metrics["LPIPS"],
-                "test/4_NIQE": metrics["NIQE"],
-                "test/5_BRISQUE": metrics["BRISQUE"],
+                "test/01_PSNR": metrics["PSNR"],
+                "test/02_SSIM": metrics["SSIM"],
+                "test/03_LPIPS": metrics["LPIPS"],
+                "test/04_NIQE": metrics["NIQE"],
+                "test/05_BRISQUE": metrics["BRISQUE"],
             },
             prog_bar=True,
         )
@@ -163,7 +163,7 @@ class LowLightEnhancerLightning(L.LightningModule):
         return [results["enhanced"]["rgb"]]
 
     def configure_optimizers(self) -> tuple[list[Optimizer], list[dict[str, Any]]]:
-        lr = float(self.hparams.get("lr", 1e-3))
+        lr = float(self.hparams.get("lr", 1e-4))
 
         optimizer: Optimizer = Adam(
             params=self.parameters(),
@@ -173,29 +173,21 @@ class LowLightEnhancerLightning(L.LightningModule):
             weight_decay=self.hparams.get("weight_decay", 0.0),
         )
 
-        total_epochs: int = int(self.hparams.get("max_epochs", 100))
-        warmup_epochs: int = max(1, int(0.05 * total_epochs))
+        total_training_steps = cast(int, self.trainer.estimated_stepping_batches)
 
-        warmup = LinearLR(
+        warmup_ratio = 0.05
+        num_warmup_steps = max(1, int(total_training_steps * warmup_ratio))
+
+        scheduler = get_cosine_schedule_with_warmup(
             optimizer=optimizer,
-            start_factor=0.1,
-            end_factor=1.0,
-            total_iters=warmup_epochs,
-        )
-        cosine = CosineAnnealingLR(
-            optimizer=optimizer,
-            T_max=total_epochs - warmup_epochs,
-            eta_min=lr * 0.01,
-        )
-        scheduler = SequentialLR(
-            optimizer=optimizer,
-            schedulers=[warmup, cosine],
-            milestones=[warmup_epochs],
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_training_steps,
         )
 
         sched_cfg: dict[str, Any] = {
             "scheduler": scheduler,
-            "interval": "epoch",
+            "interval": "step",
             "frequency": 1,
         }
+
         return [optimizer], [sched_cfg]
