@@ -3,6 +3,7 @@ from typing import Any, Literal, cast
 import lightning as L
 from torch import Tensor
 from torch.optim.adam import Adam
+from torch.optim.adamw import AdamW
 from transformers import get_cosine_schedule_with_warmup
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.optim.optimizer import Optimizer
@@ -165,7 +166,7 @@ class LowLightEnhancerLightning(L.LightningModule):
     def configure_optimizers(self) -> tuple[list[Optimizer], list[dict[str, Any]]]:
         lr = float(self.hparams.get("lr", 1e-4))
 
-        optimizer: Optimizer = Adam(
+        optimizer: Optimizer = AdamW(
             params=self.parameters(),
             lr=lr,
             betas=self.hparams.get("betas", (0.9, 0.999)),

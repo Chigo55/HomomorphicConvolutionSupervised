@@ -23,7 +23,7 @@ def get_hparams() -> dict[str, Any]:
         "valid_data_path": "data/2_valid",
         "bench_data_path": "data/3_bench",
         "infer_data_path": "data/4_infer",
-        "image_size": 256,
+        "image_size": 512,
         "batch_size": 4,
         "num_workers": 10,
         # Model
