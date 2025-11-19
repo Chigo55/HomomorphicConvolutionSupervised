@@ -20,7 +20,7 @@ def get_hparams() -> dict[str, Any]:
         "precision": "32-true",
         "log_every_n_steps": 5,
         "log_dir": "runs/",
-        "experiment_name": "test/",
+        "experiment_name": "infer/",
         "inference": "inference/",
         "patience": 20,
         "hidden_channels": 64,
@@ -36,7 +36,7 @@ def get_hparams() -> dict[str, Any]:
 
 
 DEFAULT_CHECKPOINT: Final[str] = (
-    "./runs/test/lightning_logs/version_0/checkpoints/best-epoch=81.ckpt"
+    "runs/train/version_0/checkpoints/best.ckpt"
 )
 
 

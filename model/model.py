@@ -157,11 +157,11 @@ class LowLightEnhancerLightning(L.LightningModule):
         batch: LowLightSample,
         batch_idx: int,
         dataloader_idx: int = 0,
-    ) -> list[Tensor]:
+    ) -> Tensor:
         low_img, _ = batch
 
         results = self.forward(low=low_img)
-        return [results["enhanced"]["rgb"]]
+        return results["enhanced"]["rgb"]
 
     def configure_optimizers(self) -> tuple[list[Optimizer], list[dict[str, Any]]]:
         lr = float(self.hparams.get("lr", 1e-4))

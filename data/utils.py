@@ -47,21 +47,6 @@ class LowLightDataset(Dataset[LowLightSample]):
         return low_tensor, high_tensor
 
     def _pair_augment(self, low_image: Image.Image, high_image: Image.Image) -> tuple[Image.Image, Image.Image]:
-        height, width = low_image.size
-        min_crop_size = self.image_size
-
-        if width >= min_crop_size and height >= min_crop_size:
-            max_crop_size = min(width, height)
-            new_crop_size = random.randint(min_crop_size, max_crop_size)
-
-            left = random.randint(0, width - new_crop_size)
-            top = random.randint(0, height - new_crop_size)
-            right = left + new_crop_size
-            bottom = top + new_crop_size
-
-            low_image = low_image.crop((left, top, right, bottom))
-            high_image = high_image.crop((left, top, right, bottom))
-
         if random.random() < 0.5:
             low_image = low_image.transpose(Image.FLIP_LEFT_RIGHT)
             high_image = high_image.transpose(Image.FLIP_LEFT_RIGHT)

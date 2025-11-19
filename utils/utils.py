@@ -39,17 +39,21 @@ def save_images(
     prefix: str = "infer",
     ext: str = "png",
 ) -> None:
-    for i, datasets in enumerate(iterable=batch_list):
-        save_path_str: str = make_dirs(path=f"{out_dir}/batch{i + 1}")
-        for ii, batch in enumerate(iterable=datasets):
+    for dataset_idx, dataset_batches in enumerate(iterable=batch_list):
+        dataset_name = f"dataset_{dataset_idx + 1:02d}"
+        save_path_str: str = make_dirs(path=f"{out_dir}/{dataset_name}")
+
+        for batch_idx, batch_tensor in enumerate(iterable=dataset_batches):
+            file_name = f"{prefix}_d{dataset_idx + 1:02d}_b{batch_idx + 1:04d}.{ext}"
             save_image(
-                tensor=batch,  # `save_image` can take Path, but str is fine
-                fp=f"{save_path_str}/{prefix}_{ii:04d}.{ext}",
+                tensor=batch_tensor,
+                fp=f"{save_path_str}/{file_name}",
                 nrow=8,
                 padding=2,
                 normalize=True,
                 value_range=(0, 1),
             )
+
 
 
 def count_parameters(model: nn.Module) -> int:

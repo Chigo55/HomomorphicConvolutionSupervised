@@ -77,12 +77,10 @@ class LightningBenchmarker(_BaseRunner):
 class LightningInferencer(_BaseRunner):
     def run(self) -> None:
         print("[INFO] Start Inferencing...")
-        output_batches: list[list[Tensor]] = cast(
-            list[list[Tensor]],
-            self.trainer.predict(
+        output = self.trainer.predict(
                 model=self.model,
                 datamodule=self.datamodule,
-            ),
-        )
-        save_images(batch_list=output_batches, out_dir=self.out_dir)
+            )
+        output: list[list[Tensor]] = cast(list[list[Tensor]], output)
+        save_images(batch_list=output, out_dir=self.out_dir)
         print("[INFO] Inference Completed.")
