@@ -41,6 +41,8 @@ class LightningEngine:
         self.callbacks: list[Callback] = self._build_callbacks()
         self.trainer: Trainer = self._build_trainer()
 
+        self.hparams["version"] = f"version_{self.logger.version}"
+
     def _build_trainer(self) -> Trainer:
         return Trainer(
             max_epochs=self.hparams.get("max_epochs", 100),

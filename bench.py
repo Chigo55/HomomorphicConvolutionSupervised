@@ -31,7 +31,7 @@ def get_hparams() -> dict[str, Any]:
         "num_heads": 8,
         "mlp_ratio": 4,
         "num_resolution": 4,
-        "dropout_ratio": 0.2,
+        "dropout_ratio": 0.1,
         "offset": 0.5,
         "cutoff": 0.1,
     }
