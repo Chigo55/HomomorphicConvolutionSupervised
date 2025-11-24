@@ -9,7 +9,7 @@ def get_hparams() -> dict[str, Any]:
         "train_data_path": "data/1_train",
         "valid_data_path": "data/2_valid",
         "bench_data_path": "data/3_bench",
-        "infer_data_path": "data/1_train",
+        "infer_data_path": "data/4_infer",
         "image_size": 256,
         "batch_size": 1,
         "num_workers": 10,
@@ -25,7 +25,7 @@ def get_hparams() -> dict[str, Any]:
         "patience": 20,
         "hidden_channels": 64,
         "num_resolution": 4,
-        "dropout_ratio": 0.1,
+        "dropout_ratio": 0.2,
         "offset": 0.5,
         "cutoff": 0.25,
         "trainable": False,
@@ -36,7 +36,7 @@ def get_hparams() -> dict[str, Any]:
 
 
 DEFAULT_CHECKPOINT: Final[str] = (
-    "runs/train/version_0/checkpoints/best.ckpt"
+    "runs/add_vit/version_14/checkpoints/best.ckpt"
 )
 
 

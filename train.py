@@ -28,10 +28,10 @@ def get_hparams() -> dict[str, Any]:
         "num_workers": 10,
         # Model
         "embed_dim": 64,
-        "num_heads": 1,
+        "num_heads": 4,
         "mlp_ratio": 4,
         "num_resolution": 4,
-        "dropout_ratio": 0.1,
+        "dropout_ratio": 0.2,
         "offset": 0.5,
         "cutoff": 0.1,
     }

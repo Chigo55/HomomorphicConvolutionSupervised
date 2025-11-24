@@ -20,8 +20,9 @@ class _BaseRunner(ABC):
         self.hparams: dict[str, Any] = hparams
         self.log_dir: str = self.hparams.get("log_dir", "runs/")
         self.experiment_name: str = self.hparams.get("experiment_name", "test/")
+        self.version: str = self.hparams.get("version", "version/")
         self.inference: str = self.hparams.get("inference", "inference/")
-        self.out_dir: Path = Path(self.log_dir) / self.experiment_name / self.inference
+        self.out_dir: Path = Path(self.log_dir) / self.experiment_name / self.version / self.inference
 
         self.model: LightningModule = model
         self.datamodule: LightningDataModule = self._build_datamodule()
