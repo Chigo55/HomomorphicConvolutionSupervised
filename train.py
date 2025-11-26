@@ -9,7 +9,7 @@ def get_hparams() -> dict[str, Any]:
     hparams: dict[str, Any] = {
         # Engine
         "seed": 42,
-        "max_epochs": 100,
+        "max_epochs": 200,
         "accelerator": "gpu",
         "devices": 1,
         "precision": "16-mixed",
