@@ -35,9 +35,7 @@ def get_hparams() -> dict[str, Any]:
     return hparams
 
 
-DEFAULT_CHECKPOINT: Final[str] = (
-    "runs/add_vit/version_14/checkpoints/best.ckpt"
-)
+DEFAULT_CHECKPOINT: Final[str] = "runs/add_vit/version_14/checkpoints/best.ckpt"
 
 
 def main() -> None:

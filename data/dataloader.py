@@ -40,19 +40,37 @@ class LowLightDataModule(L.LightningDataModule):
         stage: str | None = None,
     ) -> None:
         if stage is None:
-            self.train_datasets = self._set_dataset(data_dir=self.train_dir, augment=True)
-            self.valid_datasets = self._set_dataset(data_dir=self.valid_dir, augment=False)
-            self.bench_datasets = self._set_dataset(data_dir=self.bench_dir, augment=False)
-            self.infer_datasets = self._set_dataset(data_dir=self.infer_dir, augment=False)
+            self.train_datasets = self._set_dataset(
+                data_dir=self.train_dir, augment=True
+            )
+            self.valid_datasets = self._set_dataset(
+                data_dir=self.valid_dir, augment=False
+            )
+            self.bench_datasets = self._set_dataset(
+                data_dir=self.bench_dir, augment=False
+            )
+            self.infer_datasets = self._set_dataset(
+                data_dir=self.infer_dir, augment=False
+            )
         elif stage == "fit":
-            self.train_datasets = self._set_dataset(data_dir=self.train_dir, augment=True)
-            self.valid_datasets = self._set_dataset(data_dir=self.valid_dir, augment=False)
+            self.train_datasets = self._set_dataset(
+                data_dir=self.train_dir, augment=True
+            )
+            self.valid_datasets = self._set_dataset(
+                data_dir=self.valid_dir, augment=False
+            )
         elif stage == "validate":
-            self.valid_datasets = self._set_dataset(data_dir=self.valid_dir, augment=False)
+            self.valid_datasets = self._set_dataset(
+                data_dir=self.valid_dir, augment=False
+            )
         elif stage == "test":
-            self.bench_datasets = self._set_dataset(data_dir=self.bench_dir, augment=False)
+            self.bench_datasets = self._set_dataset(
+                data_dir=self.bench_dir, augment=False
+            )
         elif stage == "predict":
-            self.infer_datasets = self._set_dataset(data_dir=self.infer_dir, augment=False)
+            self.infer_datasets = self._set_dataset(
+                data_dir=self.infer_dir, augment=False
+            )
         else:
             raise ValueError(f"Invalid stage: {stage}")
 
@@ -142,4 +160,5 @@ class LowLightDataModule(L.LightningDataModule):
     def predict_dataloader(self) -> list[LowLightDataLoader]:
         return self._set_dataloader(
             datasets=self.infer_datasets,
+            shuffle=True,
         )

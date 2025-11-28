@@ -46,7 +46,7 @@ def main() -> None:
     engine: LightningEngine = LightningEngine(
         model_class=LowLightEnhancerLightning,
         hparams=hparams,
-        checkpoint_path="runs/add_vit/version_16/checkpoints/epoch-epoch=19.ckpt"
+        checkpoint_path="runs/add_vit/version_16/checkpoints/epoch-epoch=19.ckpt",
     )
     engine.bench()
 
