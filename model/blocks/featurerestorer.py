@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from model.blocks.attention import SelfAttentionBlock
-from model.utils import Flatten, Unflatten
+from model.blocks.flatten import Flatten, Unflatten
 
 
 class ResidualBlock(nn.Module):

@@ -6,7 +6,6 @@ from torch.optim.adam import Adam
 from torch.optim.optimizer import Optimizer
 from transformers import get_cosine_schedule_with_warmup
 
-from data.utils import LowLightSample
 from model.blocks.lowlightenhancer import LowLightEnhancer
 from model.loss import MeanAbsoluteError, MeanSquaredError, StructuralSimilarity
 from utils.metrics import ImageQualityMetrics
@@ -24,7 +23,7 @@ class LowLightEnhancerLightning(L.LightningModule):
             num_resolution=self.hparams.get("num_resolution", 4),
             dropout_ratio=self.hparams.get("dropout_ratio", 0.2),
             offset=self.hparams.get("offset", 0.5),
-            cutoff=self.hparams.get("cutoff", self.hparams.get("cutoff", 0.1)),
+            cutoff=self.hparams.get("cutoff", 0.1),
         )
 
         self.mae_loss: MeanAbsoluteError = MeanAbsoluteError().eval()
@@ -47,7 +46,7 @@ class LowLightEnhancerLightning(L.LightningModule):
         pred_img: Tensor = outputs["enhanced"]["rgb"]
 
         loss_mae: Tensor = self.mae_loss(pred_img, target)
-        loss_mse: Tensor = self.mse_loss(pred_img, target) * 0
+        loss_mse: Tensor = self.mse_loss(pred_img, target)
         loss_ssim: Tensor = self.ssim_loss(pred_img, target)
         loss_total: Tensor = loss_mae + loss_mse + loss_ssim
 
@@ -61,7 +60,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def _shared_step(
         self,
-        batch: LowLightSample,
+        batch: tuple[Tensor, Tensor],
     ) -> tuple[dict[str, dict[str, Tensor]], dict[str, Tensor]]:
         low_img, high_img = batch
         outputs = self.forward(low=low_img)
@@ -75,7 +74,7 @@ class LowLightEnhancerLightning(L.LightningModule):
         loss_dict: dict[str, Tensor],
         batch_idx: int,
     ) -> None:
-        if batch_idx % 50 != 0:
+        if batch_idx % self.hparams.get("log_period", 50) != 0:
             return
 
         low = outputs["low"]
@@ -98,7 +97,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def training_step(
         self,
-        batch: LowLightSample,
+        batch: tuple[Tensor, Tensor],
         batch_idx: int,
     ) -> Tensor:
         outputs, loss_dict = self._shared_step(batch=batch)
@@ -114,7 +113,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def validation_step(
         self,
-        batch: LowLightSample,
+        batch: tuple[Tensor, Tensor],
         batch_idx: int,
     ) -> Tensor:
         outputs, loss_dict = self._shared_step(batch=batch)
@@ -130,7 +129,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def test_step(
         self,
-        batch: LowLightSample,
+        batch: tuple[Tensor, Tensor],
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -152,7 +151,7 @@ class LowLightEnhancerLightning(L.LightningModule):
 
     def predict_step(
         self,
-        batch: LowLightSample,
+        batch: tuple[Tensor, Tensor],
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> Tensor:

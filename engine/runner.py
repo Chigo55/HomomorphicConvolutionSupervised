@@ -18,23 +18,24 @@ class _BaseRunner(ABC):
     ) -> None:
         self.trainer: Trainer = trainer
         self.hparams: dict[str, Any] = hparams
-        self.log_dir: str = self.hparams.get("log_dir", "runs/")
-        self.experiment_name: str = self.hparams.get("experiment_name", "test/")
-        self.version: str = self.hparams.get("version", "version/")
-        self.inference: str = self.hparams.get("inference", "inference/")
+        self.model: LightningModule = model
+
+        self.datamodule: LightningDataModule = self._build_datamodule()
+
+        self.log_dir = self.hparams.get("log_dir", "runs/")
+        self.experiment_name = self.hparams.get("experiment_name", "test/")
+        self.version = self.hparams.get("version", "version/")
+        self.inference = self.hparams.get("inference", "inference/")
         self.out_dir: Path = (
             Path(self.log_dir) / self.experiment_name / self.version / self.inference
         )
-
-        self.model: LightningModule = model
-        self.datamodule: LightningDataModule = self._build_datamodule()
 
     def _build_datamodule(self) -> LowLightDataModule:
         datamodule: LowLightDataModule = LowLightDataModule(
             train_dir=self.hparams.get("train_data_path", "data/1_train"),
             valid_dir=self.hparams.get("valid_data_path", "data/2_valid"),
-            bench_dir=str(self.hparams.get("bench_data_path", "data/3_bench")),
-            infer_dir=str(self.hparams.get("infer_data_path", "data/4_infer")),
+            bench_dir=self.hparams.get("bench_data_path", "data/3_bench"),
+            infer_dir=self.hparams.get("infer_data_path", "data/4_infer"),
             image_size=self.hparams.get("image_size", 256),
             batch_size=self.hparams.get("batch_size", 16),
             num_workers=self.hparams.get("num_workers", 10),
@@ -84,6 +85,11 @@ class LightningInferencer(_BaseRunner):
             model=self.model,
             datamodule=self.datamodule,
         )
-        output: list[list[Tensor]] = cast(list[list[Tensor]], output)
-        save_images(batch_list=output, out_dir=self.out_dir)
-        print("[INFO] Inference Completed.")
+        if output is None:
+            print("[WARN] Prediction returned None. Skipping save.")
+            return
+
+        else:
+            output = cast(list[list[Tensor]], output)
+            save_images(batch_list=output, out_dir=self.out_dir)
+            print("[INFO] Inference Completed.")

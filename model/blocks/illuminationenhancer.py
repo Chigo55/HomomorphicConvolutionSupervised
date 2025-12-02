@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from model.blocks.attention import CrossAttentionBlock
-from model.utils import Flatten, Unflatten
+from model.blocks.flatten import Flatten, Unflatten
 
 
 class Downsampling(nn.Module):

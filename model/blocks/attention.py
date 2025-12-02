@@ -16,13 +16,6 @@ class MultiLayerPerceptron(nn.Module):
             nn.Dropout(p=dropout_ratio),
             nn.Linear(
                 in_features=embed_dim * mlp_ratio,
-                out_features=embed_dim * mlp_ratio,
-                bias=False,
-            ),
-            nn.GELU(),
-            nn.Dropout(p=dropout_ratio),
-            nn.Linear(
-                in_features=embed_dim * mlp_ratio,
                 out_features=embed_dim,
                 bias=False,
             ),

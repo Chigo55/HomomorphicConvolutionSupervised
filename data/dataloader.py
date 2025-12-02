@@ -1,12 +1,10 @@
 from pathlib import Path
-from typing import Literal, overload
 
 import lightning as L
+from torch import Tensor
 from torch.utils.data import ConcatDataset, DataLoader
 
-from data.utils import LowLightDataset, LowLightSample
-
-LowLightDataLoader = DataLoader[LowLightSample]
+from data.utils import LowLightDataset
 
 
 class LowLightDataModule(L.LightningDataModule):
@@ -17,8 +15,8 @@ class LowLightDataModule(L.LightningDataModule):
         bench_dir: str,
         infer_dir: str,
         image_size: int,
-        batch_size: int = 32,
-        num_workers: int = 4,
+        batch_size: int,
+        num_workers: int,
     ) -> None:
         super().__init__()
         self.train_dir: Path = Path(train_dir)
@@ -35,130 +33,115 @@ class LowLightDataModule(L.LightningDataModule):
         self.bench_datasets: list[LowLightDataset] = []
         self.infer_datasets: list[LowLightDataset] = []
 
-    def setup(
-        self,
-        stage: str | None = None,
-    ) -> None:
-        if stage is None:
+    def setup(self, stage: str | None = None) -> None:
+        if stage in (None, "fit"):
             self.train_datasets = self._set_dataset(
-                data_dir=self.train_dir, augment=True
+                data_dir=self.train_dir, augment=True, crop=True
             )
+
+        if stage in (None, "fit", "validate"):
             self.valid_datasets = self._set_dataset(
-                data_dir=self.valid_dir, augment=False
+                data_dir=self.valid_dir, augment=False, crop=False
             )
+
+        if stage in (None, "test"):
             self.bench_datasets = self._set_dataset(
-                data_dir=self.bench_dir, augment=False
+                data_dir=self.bench_dir, augment=False, crop=False
             )
+
+        if stage in (None, "predict"):
             self.infer_datasets = self._set_dataset(
-                data_dir=self.infer_dir, augment=False
+                data_dir=self.infer_dir, augment=False, crop=False
             )
-        elif stage == "fit":
-            self.train_datasets = self._set_dataset(
-                data_dir=self.train_dir, augment=True
-            )
-            self.valid_datasets = self._set_dataset(
-                data_dir=self.valid_dir, augment=False
-            )
-        elif stage == "validate":
-            self.valid_datasets = self._set_dataset(
-                data_dir=self.valid_dir, augment=False
-            )
-        elif stage == "test":
-            self.bench_datasets = self._set_dataset(
-                data_dir=self.bench_dir, augment=False
-            )
-        elif stage == "predict":
-            self.infer_datasets = self._set_dataset(
-                data_dir=self.infer_dir, augment=False
-            )
-        else:
-            raise ValueError(f"Invalid stage: {stage}")
 
     def _set_dataset(
         self,
         data_dir: Path,
         augment: bool,
+        crop: bool,
     ) -> list[LowLightDataset]:
-        datasets: list[LowLightDataset] = []
-        for folder in data_dir.iterdir():
-            if folder.is_dir():
-                datasets.append(
-                    LowLightDataset(
-                        path=folder,
-                        image_size=self.image_size,
-                        augment=augment,
-                    )
+        if not data_dir.exists():
+            return []
+        else:
+            return [
+                LowLightDataset(
+                    path=folder,
+                    image_size=self.image_size,
+                    augment=augment,
+                    crop=crop,
                 )
-        return datasets
-
-    @overload
-    def _set_dataloader(
-        self,
-        datasets: list[LowLightDataset],
-        concat: Literal[True],
-        shuffle: bool = False,
-    ) -> LowLightDataLoader: ...
-
-    @overload
-    def _set_dataloader(
-        self,
-        datasets: list[LowLightDataset],
-        concat: Literal[False] = False,
-        shuffle: bool = False,
-    ) -> list[LowLightDataLoader]: ...
+                for folder in sorted(data_dir.iterdir())
+                if folder.is_dir()
+            ]
 
     def _set_dataloader(
         self,
         datasets: list[LowLightDataset],
-        concat: bool = False,
-        shuffle: bool = False,
-    ) -> LowLightDataLoader | list[LowLightDataLoader]:
+        concat: bool = True,
+        shuffle: bool = True,
+        batch_size: int | None = None,
+    ) -> DataLoader[tuple[Tensor, Tensor]] | list[DataLoader[tuple[Tensor, Tensor]]]:
+        batch_size = batch_size if batch_size is not None else self.batch_size
+
+        loader_kwargs = {
+            "batch_size": batch_size,
+            "shuffle": shuffle,
+            "num_workers": self.num_workers,
+            "persistent_workers": self.num_workers > 0,
+            "pin_memory": True,
+        }
+
+        if not datasets:
+            return []
+
         if concat:
-            dataset_concat: ConcatDataset[LowLightSample] = ConcatDataset(
-                datasets=datasets,
-            )
-            dataloader: LowLightDataLoader = DataLoader(
-                dataset=dataset_concat,
-                batch_size=self.batch_size,
-                shuffle=shuffle,
-                num_workers=self.num_workers,
-                persistent_workers=self.num_workers > 0,
-                pin_memory=True,
-            )
-            return dataloader
-        dataloaders: list[LowLightDataLoader] = []
-        for dataset in datasets:
-            loader: LowLightDataLoader = DataLoader(
-                dataset=dataset,
-                batch_size=self.batch_size,
-                shuffle=shuffle,
-                num_workers=self.num_workers,
-                persistent_workers=self.num_workers > 0,
-                pin_memory=True,
-            )
-            dataloaders.append(loader)
-        return dataloaders
+            return DataLoader(dataset=ConcatDataset(datasets=datasets), **loader_kwargs)
+        else:
+            return [DataLoader(dataset=ds, **loader_kwargs) for ds in datasets]
 
-    def train_dataloader(self) -> LowLightDataLoader:
+    def train_dataloader(
+        self,
+        concat: bool = True,
+        shuffle: bool = True,
+    ) -> DataLoader[tuple[Tensor, Tensor]] | list[DataLoader[tuple[Tensor, Tensor]]]:
         return self._set_dataloader(
             datasets=self.train_datasets,
-            concat=True,
-            shuffle=True,
+            concat=concat,
+            shuffle=shuffle,
         )
 
-    def val_dataloader(self) -> LowLightDataLoader:
+    def val_dataloader(
+        self,
+        concat: bool = True,
+        shuffle: bool = False,
+    ) -> DataLoader[tuple[Tensor, Tensor]] | list[DataLoader[tuple[Tensor, Tensor]]]:
         return self._set_dataloader(
             datasets=self.valid_datasets,
-            concat=True,
+            concat=concat,
+            shuffle=shuffle,
+            batch_size=1
         )
 
-    def test_dataloader(self) -> list[LowLightDataLoader]:
+    def test_dataloader(
+        self,
+        concat: bool = False,
+        shuffle: bool = False,
+    ) -> DataLoader[tuple[Tensor, Tensor]] | list[DataLoader[tuple[Tensor, Tensor]]]:
         return self._set_dataloader(
             datasets=self.bench_datasets,
+            concat=concat,
+            shuffle=shuffle,
+            batch_size=1
         )
 
-    def predict_dataloader(self) -> list[LowLightDataLoader]:
+    def predict_dataloader(
+        self,
+        concat: bool = False,
+        shuffle: bool = False,
+    ) -> DataLoader[tuple[Tensor, Tensor]] | list[DataLoader[tuple[Tensor, Tensor]]]:
         return self._set_dataloader(
             datasets=self.infer_datasets,
-            shuffle=True,
+            concat=concat,
+            shuffle=shuffle,
+            batch_size=1
         )

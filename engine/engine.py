@@ -31,10 +31,13 @@ class LightningEngine:
         seed_everything(seed=self.hparams.get("seed", 42), workers=True)
 
         if checkpoint_path:
+            print(f"Loaded model from: {self.checkpoint_path}")
             self.model = model_class.load_from_checkpoint(
                 checkpoint_path=checkpoint_path,
+                hparams=self.hparams,
             )
         else:
+            print("Initialized model from scratch.")
             self.model = model_class(hparams=self.hparams)
 
         self.logger: TensorBoardLogger = self._build_logger()
@@ -46,13 +49,12 @@ class LightningEngine:
     def _build_trainer(self) -> Trainer:
         return Trainer(
             max_epochs=self.hparams.get("max_epochs", 100),
-            accelerator=self.hparams.get("accelerator", "gpu"),
+            accelerator=self.hparams.get("accelerator", "auto"),
             devices=self.hparams.get("devices", 1),
-            precision=self.hparams.get("precision", "16-mixed"),
+            precision=self.hparams.get("precision", "32-true"),
             log_every_n_steps=self.hparams.get("log_every_n_steps", 5),
             logger=self.logger,
             callbacks=self.callbacks,
-            benchmark=False,
             deterministic=True,
         )
 
@@ -60,15 +62,17 @@ class LightningEngine:
         return TensorBoardLogger(
             save_dir=self.hparams.get("log_dir", "runs/"),
             name=self.hparams.get("experiment_name", "test/"),
+            default_hp_metric=False,
         )
 
     def _build_callbacks(self) -> list[Callback]:
         callbacks: list[Callback] = [
             ModelCheckpoint(
-                monitor="valid/4_total",
+                monitor=self.hparams.get("monitor_metric", "valid/4_total"),
                 save_top_k=1,
-                mode="min",
+                mode=self.hparams.get("monitor_mode", "min"),
                 filename="best",
+                save_last=True,
             ),
             ModelCheckpoint(
                 every_n_epochs=5,
@@ -76,9 +80,9 @@ class LightningEngine:
                 filename="epoch-{epoch:02d}",
             ),
             EarlyStopping(
-                monitor="valid/4_total",
-                patience=self.hparams.get("patience", 25),
-                mode="min",
+                monitor=self.hparams.get("monitor_metric", "valid/4_total"),
+                patience=self.hparams.get("patience", 20),
+                mode=self.hparams.get("monitor_mode", "min"),
                 verbose=True,
             ),
             LearningRateMonitor(logging_interval="step"),
