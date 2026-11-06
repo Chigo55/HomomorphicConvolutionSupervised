@@ -5,7 +5,7 @@ import urllib.request
 from pathlib import Path
 
 import mlflow
-from mlflow.entities import Run
+import mlflow.artifacts
 from omegaconf import DictConfig, OmegaConf
 
 
@@ -15,7 +15,7 @@ def start_run(
     run_id: str | None = None,
     parent_run_id: str | None = None,
     tags: dict[str, str] | None = None,
-) -> Run:
+) -> mlflow.ActiveRun:
     """Start (or resume, with `run_id`) an MLflow Run. A child Run (bench/infer)
     lives in its parent's Experiment; otherwise the Experiment is
     `cfg.experiment_name`, created with its artifacts under `tracking.artifact_dir`."""

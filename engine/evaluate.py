@@ -148,8 +148,10 @@ def _bench_dataset(
     precision: str,
     num_workers: int,
 ) -> dict[str, float]:
-    if not dataset.paired:
-        raise ValueError(f"Benchmark dataset {dataset.root} has no high/ folder")
+    if not dataset.paired or not len(dataset):
+        raise ValueError(
+            f"Benchmark dataset {dataset.root} needs images in low/ and high/"
+        )
     sums = dict.fromkeys(FULL_REFERENCE + NO_REFERENCE, 0.0)
     times: list[float] = []
     peak = 0
