@@ -38,9 +38,11 @@ uv run python main.py +experiment=cutoff_ablation -m model.cutoff=0.05,0.1,0.2
 uv run python main.py mode=bench ckpt=runs:/<run_id>/checkpoints/epoch-020.pt
 uv run python main.py mode=infer ckpt=runs:/<run_id>/checkpoints/best.pt
 
-# Resume a crashed Run (keeps its original config)
-uv run python main.py resume=runs:/<run_id>/checkpoints/last.pt
+# Resume a crashed Run, optionally on another device or for more epochs
+uv run python main.py resume=runs:/<run_id>/checkpoints/last.pt train.max_epochs=150
 ```
+
+Relative paths in the config resolve against the repo root, wherever you launch from. A resumed Run keeps its original config, except `device`, `tracking.*`, `data.num_workers` and `train.max_epochs` when you set them; any other override is ignored with a warning. It continues the same MLflow Run and RNG stream. A finished or early-stopped Run is not trained again.
 
 Settings live in [conf/config.yaml](conf/config.yaml). The ones you'll change most often:
 
@@ -63,15 +65,18 @@ uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port
 From your own machine: `ssh -L 5000:127.0.0.1:5000 <server>`, then open http://localhost:5000. Keep `--host 127.0.0.1`: the MLflow UI has no authentication.
 
 A fit Run records:
-- the resolved `config.yaml`, every config value as a param, data manifests, the git commit, and `uncommitted.patch` if the tree was dirty
-- `train/loss/*`, `train/lr` and `train/grad_norm` every `train.log_every_n_steps` steps; `valid/loss/*`, `valid/psnr` and `valid/ssim` every epoch, averaged over the whole Validation set
+- the resolved `config.yaml`, every config value as a param, and data manifests
+- `code/<UTC time>.patch` for each start or resume: the git commit plus any uncommitted diff
+- `train/loss/*`, `train/lr` and `train/grad_norm` every step (`train.log_every_n_steps`); `valid/loss/*`, `valid/psnr` and `valid/ssim` every epoch, averaged over the whole Validation set
 - `valid/sample_*` images (low-light | enhanced | normal-light) for the same validation images every epoch
 - GPU, CPU and memory system metrics
 - `checkpoints/best.pt`, `last.pt` and `epoch-XXX.pt` every `train.checkpoint_every` epochs
 
-Each bench or infer call is a child Run of its fit Run, tagged with `mode` and `checkpoint`. Bench logs `<dataset>/{psnr,ssim,lpips,niqe,brisque,latency_ms}` and, on CUDA, `<dataset>/peak_memory_mb`, plus `cost/params` and `cost/macs_256`. Infer stores `images/<dataset>/<file>.png`.
+Every Run, including bench and infer, also saves its console output as `logs/<UTC time>.log`.
 
-Training stops right away on a non-finite loss. Set `DISCORD_WEBHOOK_URL` to get a message when a Run finishes or crashes.
+Each bench or infer call is a child Run of its fit Run, tagged with `mode` and `checkpoint`. Bench logs `<dataset>/{psnr,ssim,lpips,niqe,brisque,latency_ms}` and, on CUDA, `<dataset>/peak_memory_mb`, plus `cost/params` and `cost/macs_256`. Infer stores `<dataset>/<file>.png`.
+
+Training stops right away on a non-finite loss. Set `DISCORD_WEBHOOK_URL` to get a message when a fit, including its bench, finishes or crashes. A standalone bench or infer doesn't send one.
 
 ## Layout
 

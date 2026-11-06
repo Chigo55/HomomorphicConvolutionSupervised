@@ -20,11 +20,13 @@ Training runs on a shared lab GPU server over SSH, not on the dev PC. The dev PC
 
 ## Structure
 
-- `main.py` dispatches `cfg.mode` to `engine.fit.fit`, `engine.evaluate.bench` or `engine.evaluate.infer`.
+- `main.py` chdirs to the repo (config paths are repo-relative), then dispatches `cfg.mode` to `engine.fit.fit`, `engine.evaluate.bench` or `engine.evaluate.infer`.
 - `conf/config.yaml` is the single config. Hydra's output dir is disabled (`hydra.run.dir: .`); every Run output goes to MLflow artifacts. Experiments are `conf/experiment/*.yaml` files with `# @package _global_` that set `experiment_name` plus overrides.
-- `engine/tracking.py`: MLflow is SQLite (`mlflow.db`) plus local artifacts (`mlartifacts/<experiment>/`), written directly with no server. bench and infer are child Runs of the fit Run whose id is stored in the checkpoint.
-- Checkpoints are `torch.save` dicts: `model, optimizer, scheduler, scaler, state, config, run_id`. `load_checkpoint` rebuilds the model from `ckpt["config"]["model"]`, so architecture overrides on the CLI are ignored for bench and infer. `resume` replaces the whole cfg with the checkpoint's.
-- `data/dataset.py` items are dicts `{low, normal?, name}`. `normal` is present only when a `high/` folder exists.
+- `engine/tracking.py`: MLflow is SQLite (`mlflow.db`) plus local artifacts (`mlartifacts/<experiment>/`), written directly with no server. `start_run` tees stdout/stderr into `logs/<UTC time>.log` for every Run. bench and infer are child Runs of the fit Run whose id is stored in the checkpoint.
+- Checkpoints are `torch.save` dicts: `model, optimizer, scheduler, scaler, state, rng, config, run_id`, loaded only through `runs:/` URIs. `load_checkpoint` rebuilds the model from `ckpt["config"]["model"]`, so architecture overrides on the CLI are ignored for bench and infer.
+- `resume` uses the checkpoint's config. Only `RESUME_OVERRIDES` in `engine/fit.py` can change it, and only when the CLI value differs from `conf/config.yaml`. RNG state is restored right before the epoch loop. `tests/test_smoke.py` checks that a resumed epoch replays exactly.
+- `data/dataset.py` items are dicts `{low_light, normal_light?, name}`. `normal_light` is present only when a `high/` folder exists.
+- `engine.evaluate.enhance()` is the one forward path: autocast at `train.precision`, float32 output. Losses run outside autocast.
 
 ## Model pipeline (model/blocks/lowlightenhancer.py)
 
