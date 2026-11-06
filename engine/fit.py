@@ -21,6 +21,10 @@ from engine.evaluate import PRECISIONS, bench, enhance, quality_metrics
 from model.blocks import LowLightEnhancer
 from model.loss import EnhancementLoss
 
+# What a resumed Run may change: where it runs and for how long. Everything else
+# stays as the Run was first configured.
+RESUME_OVERRIDES = ("device", "tracking", "data.num_workers", "train.max_epochs")
+
 
 def seed_everything(seed: int) -> None:
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -28,6 +32,21 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def _rng_state() -> dict:
+    return {
+        "python": random.getstate(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+    }
+
+
+def _set_rng_state(rng: dict) -> None:
+    random.setstate(rng["python"])
+    torch.set_rng_state(rng["torch"])
+    if rng["cuda"]:
+        torch.cuda.set_rng_state_all(rng["cuda"])
 
 
 def cosine_with_warmup(
@@ -40,6 +59,40 @@ def cosine_with_warmup(
         return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
 
     return LambdaLR(optimizer, factor)
+
+
+def _resume_config(cfg: DictConfig, saved: dict) -> tuple[DictConfig, dict]:
+    """The saved config, with RESUME_OVERRIDES keys the command line set
+    (values that differ from conf/config.yaml) taken from `cfg`. Also returns
+    the overrides that change the Run."""
+    defaults = tracking.flatten(OmegaConf.load(tracking.REPO / "conf" / "config.yaml"))
+    requested = {
+        k: v
+        for k, v in tracking.flatten(cfg).items()
+        if k not in ("mode", "ckpt", "resume") and defaults.get(k) != v
+    }
+    original = tracking.flatten(OmegaConf.create(saved))
+
+    def overridable(key: str) -> bool:
+        return any(key == o or key.startswith(f"{o}.") for o in RESUME_OVERRIDES)
+
+    resumed = OmegaConf.create(saved)
+    for k, v in requested.items():
+        if overridable(k):
+            OmegaConf.update(resumed, k, v, merge=False)
+    resumed.resume = cfg.resume
+    ignored = sorted(
+        k for k, v in requested.items() if not overridable(k) and original.get(k) != v
+    )
+    if ignored:
+        print(
+            f"[WARN] Resume keeps the Run's original {ignored}; "
+            f"only {list(RESUME_OVERRIDES)} can change."
+        )
+    changed = {
+        k: v for k, v in requested.items() if overridable(k) and original.get(k) != v
+    }
+    return resumed, changed
 
 
 @torch.no_grad()
@@ -74,17 +127,57 @@ def validate(
     return {k: v / count for k, v in sums.items()}, samples
 
 
+def _train_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    loss_fn: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: LambdaLR,
+    scaler: torch.amp.GradScaler,
+    train_cfg: DictConfig,
+    state: dict,
+) -> None:
+    model.train()
+    device = next(model.parameters()).device
+    for batch in loader:
+        low_light = batch["low_light"].to(device, non_blocking=True)
+        normal_light = batch["normal_light"].to(device, non_blocking=True)
+        losses = loss_fn(enhance(model, low_light, train_cfg.precision), normal_light)
+        loss = losses["total"]
+        if not torch.isfinite(loss):
+            raise FloatingPointError(f"loss is {loss.item()} at step {state['step']}")
+
+        optimizer.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward()
+        log_now = state["step"] % train_cfg.log_every_n_steps == 0
+        if log_now:
+            scaler.unscale_(optimizer)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+        if log_now:
+            logs = {f"train/loss/{k}": v.item() for k, v in losses.items()}
+            logs["train/lr"] = scheduler.get_last_lr()[0]
+            logs["train/grad_norm"] = grad_norm.item()
+            mlflow.log_metrics(logs, step=state["step"])
+        state["step"] += 1
+
+
 def fit(cfg: DictConfig) -> None:
     """Train one Run, keep best/last/periodic Checkpoints as MLflow artifacts,
     then benchmark the best Checkpoint."""
-    ckpt = None
+    ckpt, changed = None, {}
     if cfg.resume:
-        ckpt = torch.load(
-            tracking.resolve_checkpoint(cfg.resume, cfg.tracking.uri),
-            map_location="cpu",
-        )
-        cfg = OmegaConf.create(ckpt["config"])  # a Run has exactly one configuration
+        ckpt = tracking.fetch_checkpoint(cfg.resume, cfg.tracking.uri)
+        cfg, changed = _resume_config(cfg, ckpt["config"])
     train_cfg = cfg.train
+    if ckpt and (
+        ckpt["state"]["epoch"] >= train_cfg.max_epochs
+        or ckpt["state"]["bad_epochs"] >= train_cfg.patience
+    ):
+        print("[INFO] This Run already finished; use mode=bench to benchmark again.")
+        return
     seed_everything(cfg.seed)
     device = torch.device(cfg.device)
 
@@ -113,6 +206,7 @@ def fit(cfg: DictConfig) -> None:
         eps=train_cfg.eps,
         weight_decay=train_cfg.weight_decay,
     )
+    # ponytail: raising max_epochs on resume reshapes the remaining cosine curve
     total_steps = train_cfg.max_epochs * len(train_loader)
     scheduler = cosine_with_warmup(
         optimizer, max(1, int(total_steps * train_cfg.warmup_ratio)), total_steps
@@ -130,70 +224,54 @@ def fit(cfg: DictConfig) -> None:
     improved = operator.gt if train_cfg.monitor_mode == "max" else operator.lt
 
     run_id = ckpt["run_id"] if ckpt else None
-    with (
-        tempfile.TemporaryDirectory() as staging,
-        tracking.start_run(cfg, run_id=run_id, tags={"mode": "fit"}) as run,
-    ):
-        run_id = run.info.run_id
-        if ckpt is None:
-            tracking.log_config(cfg)
-            mlflow.log_params(
-                {
-                    "data.train_manifest": manifest(cfg.data.train_dir),
-                    "data.valid_manifest": manifest(cfg.data.valid_dir),
-                }
-            )
+    try:
+        with (
+            tempfile.TemporaryDirectory() as staging,
+            tracking.start_run(cfg, run_id=run_id, tags={"mode": "fit"}) as run,
+        ):
+            run_id = run.info.run_id
+            if ckpt is None:
+                tracking.log_config(cfg)
+                mlflow.log_params(
+                    {
+                        "data.train_manifest": manifest(cfg.data.train_dir),
+                        "data.valid_manifest": manifest(cfg.data.valid_dir),
+                    }
+                )
+            else:  # params are immutable, so resume overrides become tags
+                mlflow.set_tags({f"resume.{k}": str(v) for k, v in changed.items()})
             tracking.log_code_state()
 
-        def save(name: str) -> None:
-            path = Path(staging) / f"{name}.pt"
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "scaler": scaler.state_dict(),
-                    "state": state,
-                    "config": OmegaConf.to_container(cfg, resolve=True),
-                    "run_id": run_id,
-                },
-                path,
-            )
-            mlflow.log_artifact(str(path), "checkpoints")
+            def save(name: str) -> None:
+                path = Path(staging) / f"{name}.pt"
+                torch.save(
+                    {
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                        "scaler": scaler.state_dict(),
+                        "state": state,
+                        "rng": _rng_state(),
+                        "config": OmegaConf.to_container(cfg, resolve=True),
+                        "run_id": run_id,
+                    },
+                    path,
+                )
+                mlflow.log_artifact(str(path), "checkpoints")
 
-        try:
+            if ckpt:  # last, so model init above can't consume the restored stream
+                _set_rng_state(ckpt["rng"])
             for epoch in range(state["epoch"], train_cfg.max_epochs):
-                model.train()
-                for batch in train_loader:
-                    low_light = batch["low_light"].to(device, non_blocking=True)
-                    normal_light = batch["normal_light"].to(device, non_blocking=True)
-                    losses = loss_fn(
-                        enhance(model, low_light, train_cfg.precision), normal_light
-                    )
-                    loss = losses["total"]
-                    if not torch.isfinite(loss):
-                        raise FloatingPointError(
-                            f"loss is {loss.item()} at step {state['step']}"
-                        )
-
-                    optimizer.zero_grad(set_to_none=True)
-                    scaler.scale(loss).backward()
-                    log_now = state["step"] % train_cfg.log_every_n_steps == 0
-                    if log_now:
-                        scaler.unscale_(optimizer)
-                        grad_norm = torch.nn.utils.clip_grad_norm_(
-                            model.parameters(), float("inf")
-                        )
-                    scaler.step(optimizer)
-                    scaler.update()
-                    scheduler.step()
-                    if log_now:
-                        logs = {f"train/loss/{k}": v.item() for k, v in losses.items()}
-                        logs["train/lr"] = scheduler.get_last_lr()[0]
-                        logs["train/grad_norm"] = grad_norm.item()
-                        mlflow.log_metrics(logs, step=state["step"])
-                    state["step"] += 1
-
+                _train_epoch(
+                    model,
+                    train_loader,
+                    loss_fn,
+                    optimizer,
+                    scheduler,
+                    scaler,
+                    train_cfg,
+                    state,
+                )
                 scores, samples = validate(
                     model,
                     valid_loader,
@@ -204,7 +282,7 @@ def fit(cfg: DictConfig) -> None:
                 )
                 mlflow.log_metrics(scores, step=state["step"])
                 for i, image in enumerate(samples):
-                    mlflow.log_image(image, key=f"valid/sample_{i}", step=epoch)
+                    mlflow.log_image(image, key=f"valid/sample_{i}", step=state["step"])
                 if train_cfg.monitor not in scores:
                     raise KeyError(
                         f"train.monitor={train_cfg.monitor!r} is not one of {sorted(scores)}"
@@ -230,13 +308,13 @@ def fit(cfg: DictConfig) -> None:
                         f"in {train_cfg.patience} epochs."
                     )
                     break
-        except Exception as e:
-            tracking.notify(
-                f"[crashed] {cfg.experiment_name} run {run_id}: {type(e).__name__}: {e}"
-            )
-            raise
+        bench(cfg, f"runs:/{run_id}/checkpoints/best.pt")  # after the fit Run ended
+    except Exception as e:
         tracking.notify(
-            f"[finished] {cfg.experiment_name} run {run_id}: "
-            f"best {train_cfg.monitor}={state['best']:.4f} after {state['epoch']} epochs"
+            f"[crashed] {cfg.experiment_name} run {run_id}: {type(e).__name__}: {e}"
         )
-    bench(cfg, f"runs:/{run_id}/checkpoints/best.pt")  # after the fit Run has ended
+        raise
+    tracking.notify(
+        f"[finished] {cfg.experiment_name} run {run_id}: "
+        f"best {train_cfg.monitor}={state['best']:.4f} after {state['epoch']} epochs"
+    )

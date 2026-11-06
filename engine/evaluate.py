@@ -37,11 +37,10 @@ def load_checkpoint(cfg: DictConfig, uri: str | None) -> tuple[nn.Module, dict, 
         raise ValueError(
             f"mode={cfg.mode} needs ckpt=runs:/<run_id>/checkpoints/<name>.pt"
         )
-    path = tracking.resolve_checkpoint(uri, cfg.tracking.uri)
-    ckpt = torch.load(path, map_location="cpu")
+    ckpt = tracking.fetch_checkpoint(uri, cfg.tracking.uri)
     model = LowLightEnhancer(**ckpt["config"]["model"])
     model.load_state_dict(ckpt["model"])
-    return model.to(cfg.device).eval(), ckpt, path.stem
+    return model.to(cfg.device).eval(), ckpt, Path(uri).stem
 
 
 def bench(cfg: DictConfig, uri: str | None = None) -> None:
@@ -178,5 +177,5 @@ def infer(cfg: DictConfig) -> None:
                 )
                 path.parent.mkdir(parents=True, exist_ok=True)
                 save_image(enhanced, path)
-        mlflow.log_artifacts(tmp, "images")
-        print(f"[INFO] Enhanced images: {mlflow.get_artifact_uri('images')}")
+        mlflow.log_artifacts(tmp)
+        print(f"[INFO] Enhanced images: {mlflow.get_artifact_uri()}")
