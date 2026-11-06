@@ -11,8 +11,8 @@ class EnhancementLoss(nn.Module):
         super().__init__()
         self.ssim = pyiqa.create_metric("ssimc", device=device, as_loss=True)
 
-    def forward(self, enhanced: Tensor, normal: Tensor) -> dict[str, Tensor]:
-        mae = F.l1_loss(enhanced, normal)
-        mse = F.mse_loss(enhanced, normal)
-        ssim = 1 - self.ssim(enhanced, normal).mean()
+    def forward(self, enhanced: Tensor, normal_light: Tensor) -> dict[str, Tensor]:
+        mae = F.l1_loss(enhanced, normal_light)
+        mse = F.mse_loss(enhanced, normal_light)
+        ssim = 1 - self.ssim(enhanced, normal_light).mean()
         return {"mae": mae, "mse": mse, "ssim": ssim, "total": mae + mse + ssim}

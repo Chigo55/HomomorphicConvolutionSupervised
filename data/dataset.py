@@ -12,16 +12,16 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 class LowLightDataset(Dataset):
     """One dataset folder: `low/` Low-light images, optional `high/` Normal-light
-    images paired by relative path. Items are dicts with `low`, `name` and, when
-    paired, `normal`."""
+    images paired by relative path. Items are dicts with `low_light`, `name` and,
+    when paired, `normal_light`."""
 
     def __init__(
         self, root: str | Path, crop_size: int | None = None, augment: bool = False
     ) -> None:
         self.root = Path(root)
         self.low_dir = self.root / "low"
-        self.high_dir = self.root / "high"
-        self.paired = self.high_dir.is_dir()
+        self.normal_dir = self.root / "high"
+        self.paired = self.normal_dir.is_dir()
         self.files = sorted(
             p.relative_to(self.low_dir)
             for p in self.low_dir.rglob("*")
@@ -37,7 +37,7 @@ class LowLightDataset(Dataset):
         rel = self.files[index]
         images = [Image.open(self.low_dir / rel).convert("RGB")]
         if self.paired:
-            images.append(Image.open(self.high_dir / rel).convert("RGB"))
+            images.append(Image.open(self.normal_dir / rel).convert("RGB"))
 
         if self.augment:
             if random.random() < 0.5:
@@ -47,9 +47,9 @@ class LowLightDataset(Dataset):
         if self.crop_size:
             images = _random_crop(images, self.crop_size)
 
-        item = {"low": F.to_tensor(images[0]), "name": rel.as_posix()}
+        item = {"low_light": F.to_tensor(images[0]), "name": rel.as_posix()}
         if self.paired:
-            item["normal"] = F.to_tensor(images[1])
+            item["normal_light"] = F.to_tensor(images[1])
         return item
 
 

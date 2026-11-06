@@ -6,68 +6,37 @@ import mlflow
 import pyiqa
 import torch
 from omegaconf import DictConfig
-from PIL import Image
 from torch import nn
-from torch.utils.data import DataLoader
 from torch.utils.flop_counter import FlopCounterMode, sdpa_flop_count
-from torchvision.transforms.functional import to_pil_image
 from torchvision.utils import save_image
 
 from data.dataset import LowLightDataset, build_datasets, make_loader, manifest
 from engine import tracking
 from model.blocks import LowLightEnhancer
 
+PRECISIONS = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": None}
 FULL_REFERENCE = ("psnr", "ssim", "lpips")
 NO_REFERENCE = ("niqe", "brisque")
 
 
-def autocast(device: torch.device, precision: str) -> torch.autocast:
-    dtype = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": None}[precision]
-    return torch.autocast(device.type, dtype=dtype, enabled=dtype is not None)
+def enhance(model: nn.Module, low_light: torch.Tensor, precision: str) -> torch.Tensor:
+    """Enhanced image in float32, with the forward pass under autocast."""
+    dtype = PRECISIONS[precision]
+    with torch.autocast(low_light.device.type, dtype=dtype, enabled=dtype is not None):
+        return model(low_light)["enhanced"]["rgb"].float()
 
 
 def quality_metrics(names: tuple[str, ...], device: str) -> dict[str, nn.Module]:
     return {name: pyiqa.create_metric(name, device=device) for name in names}
 
 
-@torch.no_grad()
-def validate(
-    model: nn.Module,
-    loader: DataLoader,
-    loss_fn: nn.Module,
-    metrics: dict[str, nn.Module],
-    device: torch.device,
-    precision: str,
-    num_samples: int,
-) -> tuple[dict[str, float], list[Image.Image]]:
-    """Loss terms and metrics averaged over the whole Validation set, plus the
-    first `num_samples` images as low-light | enhanced | normal-light strips."""
-    model.eval()
-    sums: dict[str, float] = {}
-    samples = []
-    for batch in loader:
-        low = batch["low"].to(device)
-        normal = batch["normal"].to(device)
-        with autocast(device, precision):
-            enhanced = model(low)["enhanced"]["rgb"]
-            losses = loss_fn(enhanced, normal)
-        enhanced = enhanced.float()
-        scores = {f"valid/loss/{k}": v.item() for k, v in losses.items()}
-        scores |= {
-            f"valid/{k}": m(enhanced, normal).mean().item() for k, m in metrics.items()
-        }
-        for k, v in scores.items():
-            sums[k] = sums.get(k, 0.0) + v * len(low)
-        if len(samples) < num_samples:
-            strip = torch.cat([low[0], enhanced[0], normal[0]], dim=-1)
-            samples.append(to_pil_image(strip.cpu()))
-    count = len(loader.dataset)
-    return {k: v / count for k, v in sums.items()}, samples
-
-
-def load_checkpoint(cfg: DictConfig, uri: str) -> tuple[nn.Module, dict, str]:
+def load_checkpoint(cfg: DictConfig, uri: str | None) -> tuple[nn.Module, dict, str]:
     """Model built from the checkpoint's own config, so architecture overrides
     on the command line can't mismatch the weights."""
+    if not uri:
+        raise ValueError(
+            f"mode={cfg.mode} needs ckpt=runs:/<run_id>/checkpoints/<name>.pt"
+        )
     path = tracking.resolve_checkpoint(uri, cfg.tracking.uri)
     ckpt = torch.load(path, map_location="cpu")
     model = LowLightEnhancer(**ckpt["config"]["model"])
@@ -75,37 +44,24 @@ def load_checkpoint(cfg: DictConfig, uri: str) -> tuple[nn.Module, dict, str]:
     return model.to(cfg.device).eval(), ckpt, path.stem
 
 
-def bench(cfg: DictConfig) -> None:
-    if not cfg.ckpt:
-        raise ValueError("mode=bench needs ckpt=runs:/<run_id>/checkpoints/<name>.pt")
-    run_bench(cfg, cfg.ckpt)
-
-
-def run_bench(cfg: DictConfig, uri: str) -> None:
-    """Benchmark results for one Checkpoint, as a child Run of its fit Run."""
+def bench(cfg: DictConfig, uri: str | None = None) -> None:
+    """Benchmark results for one Checkpoint (default `cfg.ckpt`), as a child Run
+    of its fit Run."""
     datasets = build_datasets(cfg.data.bench_dir)
     if not datasets:
         print(f"[WARN] No Benchmark set in {cfg.data.bench_dir}; skipping bench.")
         return
-    model, ckpt, name = load_checkpoint(cfg, uri)
-    device = torch.device(cfg.device)
-    full_ref = quality_metrics(FULL_REFERENCE, cfg.device)
-    no_ref = quality_metrics(NO_REFERENCE, cfg.device)
+    model, ckpt, name = load_checkpoint(cfg, uri or cfg.ckpt)
+    metrics = quality_metrics(FULL_REFERENCE + NO_REFERENCE, cfg.device)
 
     tags = {"mode": "bench", "checkpoint": name}
     with tracking.start_run(cfg, parent_run_id=ckpt["run_id"], tags=tags):
-        mlflow.log_metrics(_cost(model, device))
+        mlflow.log_metrics(_cost(model))
         for dataset in datasets:
             key = dataset.root.name
             mlflow.log_param(f"{key}.manifest", manifest(dataset.root))
             scores = _bench_dataset(
-                model,
-                dataset,
-                full_ref,
-                no_ref,
-                device,
-                cfg.train.precision,
-                cfg.data.num_workers,
+                model, dataset, metrics, cfg.train.precision, cfg.data.num_workers
             )
             mlflow.log_metrics({f"{key}/{k}": v for k, v in scores.items()})
             print(
@@ -115,12 +71,13 @@ def run_bench(cfg: DictConfig, uri: str) -> None:
 
 
 @torch.no_grad()
-def _cost(model: nn.Module, device: torch.device) -> dict[str, float]:
+def _cost(model: nn.Module) -> dict[str, float]:
     """Parameters and MACs at 256x256. FFT ops are not counted."""
     # FlopCounterMode misses attention on the eval-mode MultiheadAttention fast
     # path and in the CPU flash kernel (measured: ~30x undercount). Route MHA
     # through SDPA and count the CPU kernel like the CUDA ones. Forcing the math
     # backend instead would materialise a 65536^2 attention matrix.
+    device = next(model.parameters()).device
     fastpath = torch.backends.mha.get_fastpath_enabled()
     torch.backends.mha.set_fastpath_enabled(False)
     cpu_sdpa = {torch.ops.aten._scaled_dot_product_flash_attention_for_cpu: _sdpa_flop}
@@ -142,9 +99,7 @@ def _sdpa_flop(query, key, value, *args, out_shape=None, **kwargs) -> int:
 def _bench_dataset(
     model: nn.Module,
     dataset: LowLightDataset,
-    full_ref: dict[str, nn.Module],
-    no_ref: dict[str, nn.Module],
-    device: torch.device,
+    metrics: dict[str, nn.Module],
     precision: str,
     num_workers: int,
 ) -> dict[str, float]:
@@ -152,21 +107,21 @@ def _bench_dataset(
         raise ValueError(
             f"Benchmark dataset {dataset.root} needs images in low/ and high/"
         )
-    sums = dict.fromkeys(FULL_REFERENCE + NO_REFERENCE, 0.0)
+    device = next(model.parameters()).device
+    sums = dict.fromkeys(metrics, 0.0)
     times: list[float] = []
     peak = 0
     for i, batch in enumerate(make_loader(dataset, 1, False, num_workers)):
-        normal = batch["normal"].to(device)
-        enhanced, seconds, memory = _timed_forward(
-            model, batch["low"].to(device), device, precision
+        normal_light = batch["normal_light"].to(device)
+        enhanced, seconds, memory = _timed_enhance(
+            model, batch["low_light"].to(device), precision
         )
         if i > 0:  # the first image pays for kernel selection and allocation
             times.append(seconds)
         peak = max(peak, memory)
-        for k, m in full_ref.items():
-            sums[k] += m(enhanced, normal).item()
-        for k, m in no_ref.items():
-            sums[k] += m(enhanced).item()
+        for k, m in metrics.items():
+            score = m(enhanced, normal_light) if k in FULL_REFERENCE else m(enhanced)
+            sums[k] += score.item()
 
     scores = {k: v / len(dataset) for k, v in sums.items()}
     scores["latency_ms"] = 1000 * (sum(times) / len(times) if times else seconds)
@@ -177,18 +132,18 @@ def _bench_dataset(
 
 
 @torch.no_grad()
-def _timed_forward(
-    model: nn.Module, low: torch.Tensor, device: torch.device, precision: str
+def _timed_enhance(
+    model: nn.Module, low_light: torch.Tensor, precision: str
 ) -> tuple[torch.Tensor, float, int]:
     """Enhanced image, wall time, and peak memory the forward pass added."""
+    device = low_light.device
     cuda = device.type == "cuda"
     if cuda:
         torch.cuda.synchronize(device)
         base = torch.cuda.memory_allocated(device)
         torch.cuda.reset_peak_memory_stats(device)
     start = time.perf_counter()
-    with autocast(device, precision):
-        enhanced = model(low)["enhanced"]["rgb"].float()
+    enhanced = enhance(model, low_light, precision)
     if cuda:
         torch.cuda.synchronize(device)
     seconds = time.perf_counter() - start
@@ -200,8 +155,6 @@ def _timed_forward(
 def infer(cfg: DictConfig) -> None:
     """Enhanced images for the Inference set, saved as `<dataset>/<file>.png`
     artifacts of a child Run."""
-    if not cfg.ckpt:
-        raise ValueError("mode=infer needs ckpt=runs:/<run_id>/checkpoints/<name>.pt")
     datasets = build_datasets(cfg.data.infer_dir)
     if not datasets:
         raise FileNotFoundError(f"No Inference set in {cfg.data.infer_dir}")
@@ -215,8 +168,9 @@ def infer(cfg: DictConfig) -> None:
     ):
         for dataset in datasets:
             for batch in make_loader(dataset, 1, False, cfg.data.num_workers):
-                with autocast(device, cfg.train.precision):
-                    enhanced = model(batch["low"].to(device))["enhanced"]["rgb"].float()
+                enhanced = enhance(
+                    model, batch["low_light"].to(device), cfg.train.precision
+                )
                 path = (
                     Path(tmp)
                     / dataset.root.name
