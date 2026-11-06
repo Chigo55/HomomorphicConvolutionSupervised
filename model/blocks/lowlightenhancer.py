@@ -55,26 +55,26 @@ class LowLightEnhancer(nn.Module):
             cb,
         )
 
-        y_enhenced: Tensor = self.illumination_enhancer(il, re)
+        y_enhanced: Tensor = self.illumination_enhancer(il, re)
 
         img_enh = self.composition(
             cr_restored,
             cb_restored,
-            y_enhenced,
+            y_enhanced,
         )
         img_enh = torch.clamp(input=img_enh, min=0.0, max=1.0)
 
         outputs: dict[str, dict[str, Tensor]] = {
-            "low": {
+            "low_light": {
                 "luminance": y,
                 "chroma_red": cr,
                 "chroma_blue": cb,
-                "illuminance": il,
+                "illumination": il,
                 "reflectance": re,
                 "rgb": low,
             },
             "enhanced": {
-                "luminance": y_enhenced,
+                "luminance": y_enhanced,
                 "chroma_red": cr_restored,
                 "chroma_blue": cb_restored,
                 "rgb": img_enh,

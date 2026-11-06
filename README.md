@@ -1,148 +1,101 @@
 ﻿# Homomorphic Convolution Supervised
 
-Low-light image enhancement pipeline that decomposes illumination with homomorphic filtering, restores chroma and reflectance details, and re-composes enhanced RGB outputs. The implementation uses PyTorch Lightning for training, validation, benchmarking, and inference.
+Supervised low-light image enhancement. The model splits luminance into illumination and reflectance with a homomorphic filter, enhances illumination with a cross-attention U-Net, restores chroma, and recomposes RGB. Training is plain PyTorch, configuration is Hydra, and every Run is tracked in MLflow. Domain terms are defined in [GLOSSARY.md](GLOSSARY.md).
 
-## Repository Layout
-
-```
-.
-├── data/
-│   ├── __init__.py
-│   ├── dataloader.py
-│   └── utils.py
-├── engine/
-│   ├── __init__.py
-│   ├── engine.py
-│   └── runner.py
-├── model/
-│   ├── __init__.py
-│   ├── model.py
-│   ├── loss.py
-│   └── blocks/
-│       ├── __init__.py
-│       ├── featurerestorer.py
-│       ├── homomorphic.py
-│       ├── illuminationenhancer.py
-│       └── lowlightenhancer.py
-├── utils/
-│   ├── __init__.py
-│   ├── metrics.py
-│   └── utils.py
-├── main.py
-├── .gitignore
-├── .python-version
-├── pyproject.toml
-├── requirements.txt
-└── README.md
-```
-
-## Environment Management (UV)
-
-This project uses [UV](https://github.com/astral-sh/uv) for Python environment and dependency management.
+## Setup
 
 ```bash
-# create and sync the environment
-uv sync
-
-# run commands inside the environment
-uv run python main.py
-
-# add or update dependencies
-uv add <package>
-uv lock
+uv sync    # Python 3.10, torch 2.7.1+cu118
 ```
 
-Requirements remain in
-`requirements.txt` for compatibility with other workflows, but `uv sync` is the canonical way to reproduce the environment described in `pyproject.toml` and `uv.lock`.
+## Data
 
-## Architecture Overview
-
-| Stage | File | Description |
-| --- | --- | --- |
-| Data loading | data/utils.py, data/dataloader.py | LowLightDataset pairs low and high images; LowLightDataModule builds loaders for train, valid, bench, infer splits. |
-| Homomorphic separation | model/blocks/homomorphic.py | Converts RGB and YCrCb and splits illumination and reflectance via a learned homomorphic filter. |
-| Illumination enhancement | model/blocks/illuminationenhancer.py | U-Net style convolutional stack that brightens the illumination map. |
-| Feature restoration | model/blocks/featurerestorer.py | Restores chroma and reflectance through residual double-convolution blocks. |
-| Recomposition | model/blocks/lowlightenhancer.py | Combines restored components, clamps outputs, and returns structured tensors. |
-| Lightning wrapper | model/model.py | Aggregates the pipeline, computes MAE, MSE, SSIM losses, logs metrics, and configures optimisers. |
-| Engine and runners | engine/engine.py, engine/runner.py | LightningEngine seeds, logs, and holds a single model instance; stage runners reuse that instance so validation, benchmarking, and inference use trained weights. |
-| Metrics and utilities | utils/metrics.py, utils/utils.py | Quality metrics (PSNR, SSIM, LPIPS, NIQE, BRISQUE) and helpers for saving images, printing metrics, and summarising models. |
-
-## Dataset Expectation
-
-Each split directory can contain multiple datasets. Inside each dataset folder you must provide matching low/ and high/ subfolders. Example layout:
+Each split holds one folder per dataset, with `low/` and `high/` images paired by relative path:
 
 ```
 data/
-├── 1_train/
-│   └── LOLv1/
-│       ├── low/
-│       └── high/
-├── 2_valid/
-│   └── LOLv1/
-│       ├── low/
-│       └── high/
-├── 3_bench/
-│   └── LOLv1/
-│       ├── low/
-│       └── high/
-└── 4_infer/
-    └── LOLv1/
-        ├── low/
-        └── high/
+├── 1_train/<dataset>/{low,high}/   # Training set (random crops + flips)
+├── 2_valid/<dataset>/{low,high}/   # Validation set (picks the best Checkpoint)
+├── 3_bench/<dataset>/{low,high}/   # Benchmark set (reported per dataset)
+└── 4_infer/<dataset>/low/          # Inference set (high/ optional, never scored)
 ```
 
-File names inside corresponding low/ and high/ directories must align (for example 0001.png should exist in both).
+Validation, bench and infer run on full images, so H and W must be divisible by `2 ** model.num_resolution`.
 
-## Running the Pipeline
+## Running
 
-```python
-from engine import LightningEngine
-from model.model import LowLightEnhancerLightning
-from main import get_hparams
+```bash
+# Baseline Run: train, then benchmark the best Checkpoint
+uv run python main.py
 
-engine = LightningEngine(
-    model_class=LowLightEnhancerLightning,
-    hparams=get_hparams(),
-)
-engine.train()   # fits the model
-engine.valid()   # evaluates on validation data
-engine.bench()   # reports PSNR, SSIM, LPIPS, NIQE, BRISQUE
-engine.infer()   # saves enhanced images for inference data
+# Any config value can be overridden
+uv run python main.py train.lr=3e-4 model.cutoff=0.2
+
+# An Experiment is a file in conf/experiment/ holding only what differs
+uv run python main.py +experiment=cutoff_ablation -m model.cutoff=0.05,0.1,0.2
+
+# Benchmark or enhance with any Checkpoint (run id from the MLflow UI)
+uv run python main.py mode=bench ckpt=runs:/<run_id>/checkpoints/epoch-020.pt
+uv run python main.py mode=infer ckpt=runs:/<run_id>/checkpoints/best.pt
+
+# Resume a crashed Run, optionally on another device or for more epochs
+uv run python main.py resume=runs:/<run_id>/checkpoints/last.pt train.max_epochs=150
 ```
 
-### Resuming or Inference from a Checkpoint
+Relative paths in the config resolve against the repo root, wherever you launch from. A resumed Run keeps its original config, except `device`, `tracking.*`, `data.num_workers` and `train.max_epochs` when you set them; any other override is ignored with a warning. It continues the same MLflow Run and RNG stream. A finished or early-stopped Run is not trained again.
 
-```python
-engine = LightningEngine(
-    model_class=LowLightEnhancerLightning,
-    hparams=get_hparams(),
-    checkpoint_path="runs/example/best-epoch.ckpt",
-)
+Settings live in [conf/config.yaml](conf/config.yaml). The ones you'll change most often:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `experiment_name` | `baseline` | MLflow Experiment the Run goes into |
+| `seed` | `42` | Fixed. Use 42/43/44 for Runs in the final table |
+| `train.monitor` / `train.monitor_mode` | `valid/psnr` / `max` | Picks `best.pt` and drives early stopping |
+| `train.precision` | `fp16` | `fp16`, `bf16` or `fp32` |
+| `device` | `cuda` | `cpu` works for smoke checks |
+
+## Tracking (MLflow)
+
+Runs are written straight to `mlflow.db` and `mlartifacts/` in the repo, so training doesn't need a server. On the training server:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000
 ```
 
-## Hyperparameters
+From your own machine: `ssh -L 5000:127.0.0.1:5000 <server>`, then open http://localhost:5000. Keep `--host 127.0.0.1`: the MLflow UI has no authentication.
 
-main.py exposes get_hparams(); it returns a dictionary that contains everything the engine runners need. The default keys cover:
+A fit Run records:
+- the resolved `config.yaml`, every config value as a param, and data manifests
+- `code/<UTC time>.patch` for each start or resume: the git commit plus any uncommitted diff
+- `train/loss/*`, `train/lr` and `train/grad_norm` every step (`train.log_every_n_steps`); `valid/loss/*`, `valid/psnr` and `valid/ssim` every epoch, averaged over the whole Validation set
+- `valid/sample_*` images (low-light | enhanced | normal-light) for the same validation images every epoch
+- GPU, CPU and memory system metrics
+- `checkpoints/best.pt`, `last.pt` and `epoch-XXX.pt` every `train.checkpoint_every` epochs
 
-- **Data**: 	train_data_path, valid_data_path, bench_data_path, infer_data_path, image_size, batch_size,
-um_workers.
-- **Training loop**: seed, max_epochs, accelerator, devices, precision, log_every_n_steps, log_dir, experiment_name, inference (subdirectory name for predictions), patience (early stopping).
-- **Model configuration**: hidden_channels,
-um_resolution, dropout_ratio,
-aw_cutoff, offset, 	rainable (whether to train homomorphic filters / down-sampling convs).
-- **Optimiser**: optim (string name). Optional keys such as lr, momentum, betas, etc., are consumed inside configure_optimizers depending on which optimiser you choose.
+Every Run, including bench and infer, also saves its console output as `logs/<UTC time>.log`.
 
-The sample script loops over several optimiser options to compare performance. If you only need one configuration, remove the loop and set the desired optimiser and hyperparameters directly in get_hparams() or via CLI/environment overrides.
+Each bench or infer call is a child Run of its fit Run, tagged with `mode` and `checkpoint`. Bench logs `<dataset>/{psnr,ssim,lpips,niqe,brisque,latency_ms}` and, on CUDA, `<dataset>/peak_memory_mb`, plus `cost/params` and `cost/macs_256`. Infer stores `<dataset>/<file>.png`.
 
-## Metrics and Logging
+Training stops right away on a non-finite loss. Set `DISCORD_WEBHOOK_URL` to get a message when a fit, including its bench, finishes or crashes. A standalone bench or infer doesn't send one.
 
-- Metrics are computed through utils/metrics.py and logged by Lightning.
-- TensorBoard logs and checkpoints are stored under log_dir/experiment_name (defaults to runs/<experiment>).
-- The best checkpoint is tracked using the validation total loss (valid/4_total).
+## Layout
 
-## Notes
+```
+main.py                 Hydra entry point: mode=fit|bench|infer
+conf/                   config.yaml, experiment/*.yaml
+data/dataset.py         paired dataset, loaders, split manifest
+engine/fit.py           training loop, checkpoints, early stopping
+engine/evaluate.py      validation, bench (quality + cost), infer
+engine/tracking.py      MLflow runs, checkpoint URIs, notifications
+model/blocks/           the network
+model/loss.py           MAE + MSE + (1 - SSIM)
+notebooks/figures.ipynb paper figures from a Checkpoint
+tests/test_smoke.py     CPU smoke tests
+```
 
-- Designed for research and experimentation; additional robustness checks are recommended before production deployment.
-- Utility helpers (utils/utils.py) cover image saving, metric printing, directory creation, parameter counting, and model summaries.
-- Loss wrappers in model/loss.py can be extended for custom objectives.
+## Checks
+
+```bash
+uv run pytest
+uv run ruff check . && uv run ruff format .
+```

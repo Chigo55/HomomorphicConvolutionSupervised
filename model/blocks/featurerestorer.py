@@ -135,5 +135,5 @@ class FeatureRestorationBlock(nn.Module):
         cb: Tensor,
     ) -> Tuple[Tensor, Tensor]:
         cr = self.cr_conv(cr)
-        cb = self.cr_conv(cb)
+        cb = self.cb_conv(cb)
         return cr, cb
