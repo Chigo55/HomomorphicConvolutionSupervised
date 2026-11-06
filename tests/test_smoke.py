@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import mlflow
+import mlflow.artifacts
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
