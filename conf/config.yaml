@@ -1,0 +1,57 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: stdout
+
+mode: fit # fit | bench | infer
+ckpt: null # bench/infer: runs:/<run_id>/checkpoints/best.pt
+resume: null # fit: runs:/<run_id>/checkpoints/last.pt
+seed: 42
+device: cuda
+experiment_name: baseline # MLflow Experiment; override in conf/experiment/*.yaml
+run_name: null
+
+data:
+  train_dir: data/1_train
+  valid_dir: data/2_valid
+  bench_dir: data/3_bench
+  infer_dir: data/4_infer
+  image_size: 256 # training crop; H and W must be divisible by 2 ** num_resolution
+  batch_size: 4
+  num_workers: 10
+
+model:
+  embed_dim: 16
+  num_heads: 2
+  mlp_ratio: 1
+  num_resolution: 2
+  dropout_ratio: 0.2
+  offset: 0.5
+  cutoff: 0.1
+
+train:
+  max_epochs: 100
+  lr: 1.0e-4
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  weight_decay: 0.0
+  warmup_ratio: 0.05
+  precision: fp16 # fp16 | bf16 | fp32
+  monitor: valid/psnr # any valid/* metric, e.g. valid/loss/total
+  monitor_mode: max # max | min
+  patience: 20
+  checkpoint_every: 5
+  log_every_n_steps: 5
+  num_sample_images: 4
+
+tracking:
+  uri: sqlite:///mlflow.db
+  artifact_dir: mlartifacts
+  system_metrics: true
+
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: .
+    subdir: .
+  output_subdir: null
