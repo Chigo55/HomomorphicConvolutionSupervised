@@ -2,48 +2,47 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Low-light image enhancement (PyTorch Lightning). README.md is partly stale: it refers to a `main.py` that no longer exists.
+Low-light image enhancement research: plain PyTorch, Hydra config, MLflow tracking. Read `GLOSSARY.md` first and use its terms (Run, Experiment, Checkpoint, Benchmark result, Low-light/Normal-light/Enhanced image).
 
 ## Commands
 
 ```bash
-uv sync                    # canonical env: Python 3.10, torch cu118 (pyproject.toml); requirements.txt is stale
-uv run python train.py     # fit, then bench on data/3_bench
-uv run python valid.py     # validate a checkpoint
-uv run python bench.py     # PSNR/SSIM/LPIPS/NIQE/BRISQUE on data/3_bench
-uv run python infer.py     # save enhanced images
+uv sync                                   # Python 3.10, torch cu118; uv.lock is tracked
+uv run python main.py                     # mode=fit (default), then bench of best.pt
+uv run python main.py mode=bench ckpt=runs:/<run_id>/checkpoints/best.pt
+uv run python main.py mode=infer ckpt=runs:/<run_id>/checkpoints/best.pt
+uv run python main.py resume=runs:/<run_id>/checkpoints/last.pt
+uv run pytest                             # CPU smoke tests, ~20 s
 uv run ruff check . && uv run ruff format .
-tensorboard --logdir runs/
 ```
 
-There is no pytest suite. `test/*.ipynb` are notebooks that exercise each block one at a time.
+Training runs on a shared lab GPU server over SSH, not on the dev PC. The dev PC has no GPU, so pass `device=cpu train.precision=fp32` for local checks.
 
-## Entry scripts
+## Structure
 
-`train.py`, `valid.py`, `bench.py` and `infer.py` each contain their own copy of `get_hparams()`, and the eval scripts hard-code `checkpoint_path`. A change to an hparam has to be made in all four. `train.py` replaces `seed` with a random value on every run.
-
-`LightningEngine` (engine/engine.py) builds one model, logger, trainer and callback set. Its `train/valid/bench/infer` methods wrap Lightning's `fit/validate/test/predict` through thin runners in engine/runner.py, and each runner builds its own `LowLightDataModule`.
-
-`load_from_checkpoint(..., hparams=self.hparams)` passes the current script's hparams in place of the saved ones. Architecture keys (`embed_dim`, `num_heads`, `mlp_ratio`, `num_resolution`) must match the checkpoint, or loading fails.
+- `main.py` dispatches `cfg.mode` to `engine.fit.fit`, `engine.evaluate.bench` or `engine.evaluate.infer`.
+- `conf/config.yaml` is the single config. Hydra's output dir is disabled (`hydra.run.dir: .`); every Run output goes to MLflow artifacts. Experiments are `conf/experiment/*.yaml` files with `# @package _global_` that set `experiment_name` plus overrides.
+- `engine/tracking.py`: MLflow is SQLite (`mlflow.db`) plus local artifacts (`mlartifacts/<experiment>/`), written directly with no server. bench and infer are child Runs of the fit Run whose id is stored in the checkpoint.
+- Checkpoints are `torch.save` dicts: `model, optimizer, scheduler, scaler, state, config, run_id`. `load_checkpoint` rebuilds the model from `ckpt["config"]["model"]`, so architecture overrides on the CLI are ignored for bench and infer. `resume` replaces the whole cfg with the checkpoint's.
+- `data/dataset.py` items are dicts `{low, normal?, name}`. `normal` is present only when a `high/` folder exists.
 
 ## Model pipeline (model/blocks/lowlightenhancer.py)
 
 1. `ImageDecomposition`: RGB → YCrCb (Cr and Cb shifted by `offset`), then a homomorphic split of Y: log → FFT → Gaussian LPF (`cutoff`) → illumination `il` and reflectance `re`.
-2. `FeatureRestorationBlock`: Cr and Cb each go through ResidualBlock → SelfAttention → ResidualBlock. Note that `forward` currently uses `cr_conv` for both channels.
+2. `FeatureRestorationBlock`: Cr goes through `cr_conv` and Cb through `cb_conv` (ResidualBlock → SelfAttention → ResidualBlock).
 3. `IlluminationEnhancer`: a U-Net with `CrossAttentionBlock`. The query is `il` and the key/value is `re`. One shared `in_conv` serves both streams. Output is `out_conv(x) + il * re`.
 4. `ImageComposition`: YCrCb → RGB, clamped to [0, 1].
 
-`forward` returns `{"low": {...}, "enhanced": {...}}`. The image logging in model/model.py iterates over those dicts, so changing their keys changes the TensorBoard tag names.
+`forward` returns `{"low_light": {...}, "enhanced": {...}}`. `notebooks/figures.ipynb` reads those keys.
 
-Attention runs over every H×W token at full resolution, which makes it memory-heavy. Valid, bench and infer run on full, uncropped images with batch_size 1. H and W must be divisible by `2 ** num_resolution`.
+Attention runs over every H×W token at full resolution, which makes it memory-heavy. Validation, bench and infer use full images with batch size 1, so H and W must be divisible by `2 ** num_resolution`.
 
 ## Gotchas
 
-- Metric names are built as `f"{stage}/{i+1}_{key}"` from the order of the loss dict (mae, mse, ssim, total). The total loss is therefore `valid/4_total`. The eval scripts set `"valid/3_total"`, which is stale, but `monitor_metric` only takes effect during fit.
-- `pyiqa` metrics and the SSIM loss hard-code `device="cuda"`, so a GPU is required.
-- `transformers` (cosine warmup scheduler) and `matplotlib` (utils/utils.py) are imported but not declared in pyproject.toml.
-- Data layout: `data/{1_train,2_valid,3_bench,4_infer}/<dataset>/{low,high}/`. Low and high images are paired by filename. Each split loads every dataset folder; train and valid concatenate them, while bench and infer keep one dataloader per dataset.
-- Outputs go to `runs/<experiment_name>/version_N/`: checkpoints `best.ckpt`, `last.ckpt` and `epoch-XX.ckpt` every 5 epochs, plus `inference/dataset_XX/` for inference images.
+- Metric keys: `train/loss/{mae,mse,ssim,total}`, `valid/loss/*`, `valid/psnr`, `valid/ssim`. `train.monitor` must be one of the `valid/*` keys; a typo fails after the first epoch.
+- `cost/macs_256` disables the MHA fast path while counting and maps the CPU flash-attention op to the SDPA formula. Without that, `FlopCounterMode` drops attention (~30x undercount). Don't force the math SDPA backend: at 256² it materialises a 65536² matrix.
+- pyiqa downloads LPIPS/NIQE/BRISQUE weights on first bench (internet needed).
+- Notifications: `DISCORD_WEBHOOK_URL` env var. Never put the URL in config or git.
 
 ## Agent skills
 
